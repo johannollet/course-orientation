@@ -168,6 +168,7 @@ const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&
 const starsH=n=>'<span class="st">'+'★'.repeat(Math.max(0,n|0))+'</span>';
 const shuffle=a=>{for(let i=a.length-1;i>0;i--){const j=Math.random()*(i+1)|0;[a[i],a[j]]=[a[j],a[i]]}return a};
 const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+const fmtP=n=>String(Math.round((+n||0)*100)/100).replace('.',',');
 const fmtT=ms=>{if(ms==null)return'';const s=Math.max(0,Math.round(ms/1000));return String(s/60|0).padStart(2,'0')+':'+String(s%60).padStart(2,'0')};
 const COLORS=['#2e8b5e','#ee7a1a','#3b6fd8','#c2408f','#8b5cf6','#0f9aa8','#d2a106','#d23c3c','#5b7a2e','#a0522d','#1b3a6b','#7a7a7a'];
 
@@ -510,7 +511,7 @@ function gCard(g){
   if(g.cur)body=`<div class="cur"><span>Carte</span><span class="num">${esc(g.cur.carte)}</span>${starsH(g.cur.stars)}${g.cur.fails?`<span class="pill" style="background:#fdeaea;color:var(--red)">essai n°${g.cur.fails+1}</span>`:''}<span class="timer" data-t0="${g.cur.t0}" data-lim="${g.cur.lim||0}"></span></div>
     <div class="row"><button class="btn primary grow" style="padding:14px" onclick="openValidate('${g.id}')">✅ Valider le code</button><button class="btn" title="Changer / retirer la carte" onclick="cardMenu('${g.id}')">⋯</button></div>`;
   else body=`<button class="btn big orange" onclick="newCard('${g.id}')">🧭 Nouvelle carte${S.session.mode==='progression'?' '+starsH(g.level).replace('st"','st" style="color:#fff"'):''}</button>`;
-  return `<div class="gcard" style="--c:${g.color}"><div class="ghead"><b>${esc(g.name)}</b><span class="pts">${g.pts} pts</span></div>
+  return `<div class="gcard" style="--c:${g.color}"><div class="ghead"><b>${esc(g.name)}</b><span class="pts">${fmtP(g.pts)} pts</span></div>
    ${S.session.size>1||g.members.length>1?`<div class="members">${mem}</div>`:''}
    ${S.session.mode==='progression'?`<div class="sub">Niveau actuel : ${starsH(g.level)} ${g.maxLevel?`· record ${starsH(g.maxLevel)}`:''}</div>`:''}
    ${dots?`<div class="dots">${dots}</div>`:''}${body}</div>`;
@@ -621,7 +622,7 @@ function applyResult(gid,ok,errs){
   if(!info)return;
   if(info.retry)return showRetry(errs,info);
   if(info.duel)showResult(ok,errs,`${info.pts?'+'+info.pts+' points':'0 point'} · ${fmtT(time)}`,info.msg,info.name);
-  else showResult(ok,errs,`${ok?`+${info.pts} point${info.pts>1?'s':''}`:'0 point'} · ${fmtT(time)}`,
+  else showResult(ok,errs,`${ok?`+${fmtP(info.pts)} point${info.pts>1?'s':''}${info.half?' (½ : réussi au '+(info.half+1)+'e essai)':''}`:'0 point'} · ${fmtT(time)}`,
     S.session&&S.session.mode==='progression'?(ok?(info.level>info.before?`Niveau suivant : ${starsH(info.level)}`:`Niveau max ${starsH(info.level)} conservé !`):(info.level<info.before?`Tu redescends : ${starsH(info.level)}`:`Tu restes au niveau ${starsH(info.level)}`)):'',info.name);
 }
 function maxTries(){const t=S.session&&S.session.tries;return t===0?Infinity:(t||1)}
@@ -635,14 +636,14 @@ function resultMut(gid,t0,ok,time,now,fin){
   const key=String(c.carte);if(!g.done.includes(key))g.done.push(key);
   if(c.duel)return duelMut(g,ok,time,now);
   const late=!!(c.lim&&time>c.lim);if(late)ok=false;
-  const pts=ok?(S.settings.ptsMode==='stars'?st:1):0;
+  const pts=ok?(S.settings.ptsMode==='stars'?st:1)*(c.fails?0.5:1):0;
   award(g,pts);
   if(ok)g.maxLevel=Math.max(g.maxLevel||0,st);
   const before=g.level;
   if(S.session.mode==='progression'&&!late)g.level=ok?lvUp(g.level):lvDown(g.level);
   g.hist.push({carte:c.carte,stars:st,ok,pts,time,ts:now,members:[...g.members],late:!!(c.lim&&time>c.lim)});
   g.cur=null;
-  return{pts,before,level:g.level,name:g.name};
+  return{pts,before,level:g.level,name:g.name,half:ok&&c.fails?c.fails:0};
 }
 function showRetry(errs,info){
   let det='';
@@ -650,7 +651,7 @@ function showRetry(errs,info){
   else if(errs.length&&S.settings.showErrors==='which')det=`<p>À revoir : ${errs.map(k=>k==='dep'?'lettre de départ':k==='arr'?"lettre d'arrivée":'balise n°'+(+k+1)).join(', ')}</p>`;
   const left=info.max===Infinity?'':` (encore ${info.max-info.fails} essai${info.max-info.fails>1?'s':''})`;
   openModal(`<div class="result ko"><div class="ic">🔁</div><h2>Code faux… retente ta chance !</h2><p class="sub">${esc(info.name)}</p>${det}
-  <p>Ta carte reste active${left}. Retourne vérifier tes balises puis revalide le code.</p>
+  <p>Ta carte reste active${left}. Retourne vérifier tes balises puis revalide le code.</p>${info.duel?'':'<p class="sub">Une réussite maintenant rapporte la moitié des points.</p>'}
   <button class="btn primary big" onclick="closeModal()">OK</button></div>`);
 }
 function showResult(ok,errs,line,line2,name){
@@ -715,7 +716,7 @@ const metKey=(a,b)=>[a,b].sort().join('|');
 function challengePanel(){
   const s=S.session;const busy=busyIds();const free=s.groups.filter(g=>!busy.has(g.id)&&g.members.length);
   if(chal.me&&!free.some(g=>g.id===chal.me))chal.me=null;if(chal.opp&&(!free.some(g=>g.id===chal.opp)||chal.opp===chal.me))chal.opp=null;
-  const chip=(g,on,fn,extra='')=>`<button class="chip" style="border:2px solid ${on?g.color:'var(--line)'};${on?'background:#e8f3ec;font-weight:800':''}" onclick="${fn}">${esc(g.name)} <span class="sub">${g.pts} pts</span>${extra}</button>`;
+  const chip=(g,on,fn,extra='')=>`<button class="chip" style="border:2px solid ${on?g.color:'var(--line)'};${on?'background:#e8f3ec;font-weight:800':''}" onclick="${fn}">${esc(g.name)} <span class="sub">${fmtP(g.pts)} pts</span>${extra}</button>`;
   let h=`<div class="card"><h3 style="margin-top:0">🤝 Lancer un défi</h3>`;
   if(free.length<2){h+=`<p class="sub" style="margin:0">${free.length?`<b>${esc(free[0].name)}</b> attend un adversaire : les autres équipes sont en duel.`:'Toutes les équipes sont en duel.'} Termine un duel pour libérer des équipes.</p></div>`;return h}
   h+=`<p class="sub" style="margin:0 0 6px">1. Ton équipe :</p><div class="chips">${free.map(g=>chip(g,chal.me===g.id,`chal.me='${g.id}';chal.opp=null;render()`)).join('')}</div>`;
@@ -765,7 +766,7 @@ function duelCard(d,i){
       if(r)st+=r.ok?`<div style="color:var(--ok);font-weight:800">✔ Code juste · ${fmtT(r.time)}</div>`:`<div style="color:var(--red);font-weight:800">✘ Code faux</div>`;
       else if(d.state==='run')st+=`<button class="btn primary" onclick="openValidate('${g.id}')">✅ Valider</button>`;
     }
-    return`<div class="side ${d.winner===k?'win':''}" style="--c:${g.color}"><b>${d.winner===k?'🏆 ':''}${esc(g.name)}</b>${g.members.length>1?`<span class="sub">${mem}</span>`:''}<span class="pts" style="font-size:15px">${g.pts} pts</span>${st}</div>`};
+    return`<div class="side ${d.winner===k?'win':''}" style="--c:${g.color}"><b>${d.winner===k?'🏆 ':''}${esc(g.name)}</b>${g.members.length>1?`<span class="sub">${mem}</span>`:''}<span class="pts" style="font-size:15px">${fmtP(g.pts)} pts</span>${st}</div>`};
   let foot='';
   const endBtn=S.session.pairing==='libre'&&d.state==='wait'?`<button class="btn sm ghost" style="margin-top:6px" onclick="endDuel('${d.id}')">${d.manche?'🏁 Fin du duel':'✕ Annuler ce duel'}</button>`:'';
   if(d.state==='wait')foot=`<p class="sub" style="margin:10px 0 6px">Niveau de la manche ${d.manche+1} :</p><div class="starpick" style="grid-template-columns:repeat(6,1fr)">${[1,2,3,4,5,6].map(l=>`<button class="${d.stars===l?'on':''}" ${allowedLv().includes(l)?'':'disabled style="opacity:.25"'} style="font-size:13px;padding:8px 2px" onclick="setDuelStars('${d.id}',${l})">${l}★</button>`).join('')}</div><button class="btn orange big" style="margin-top:8px" onclick="launchDuel('${d.id}')">▶ Lancer la manche</button>${endBtn}`;
@@ -967,7 +968,7 @@ function limitEditor(L,path,after){
 let limDraft=null;
 let triesDraft=1;
 function triesEditor(v,path,after){return`<div class="seg">${[[1,'1 essai','code faux = échec'],[2,'2 essais','une 2e chance'],[3,'3 essais',''],[0,'Illimité','jusqu\'à réussir ou abandonner']].map(([k,t,d])=>`<button class="${v===k?'on':''}" style="flex:1 1 110px" onclick="${path}=${k};${after}"><b>${t}</b>${d?`<small>${d}</small>`:''}</button>`).join('')}</div>
-  ${v!==1?'<p class="sub" style="margin:6px 0 0">Après un code faux, la carte reste active : l\'équipe retourne vérifier ses balises. Le chrono continue. Les points sont complets en cas de réussite.</p>':''}`}
+  ${v!==1?'<p class="sub" style="margin:6px 0 0">Après un code faux, la carte reste active : l\'équipe retourne vérifier ses balises. Le chrono continue. Une réussite au 2e essai (ou plus) rapporte la moitié des points (en défi : points complets, la course se joue au temps).</p>':''}`}
 function editLimit(){needPin(()=>{limDraft=JSON.parse(JSON.stringify(S.session.limit||defLimit()));triesDraft=S.session.tries??1;rLimit()})}
 function rLimit(){openModal(`<h2>🔁 Essais par carte</h2>${triesEditor(triesDraft,'triesDraft','rLimit()')}<h2 style="margin-top:18px">⏱ Temps limite</h2>${limitEditor(limDraft,'limDraft','rLimit()')}
   <p class="sub">Le nouveau temps s'applique aux cartes prises à partir de maintenant.</p>
@@ -988,15 +989,15 @@ function rClassement(){
   const st=stats();
   if(clsView==='groupes'){
     head=`<tr><th>#</th><th>Équipe</th><th class="n">Pts</th><th class="n">Réussites</th>${s.mode==='defi'?'<th class="n">Victoires</th>':''}<th class="n">Niv. max</th></tr>`;
-    rows=[...s.groups].sort((a,b)=>b.pts-a.pts).map(g=>({k:g.pts,html:`<td><b>${esc(g.name)}</b><div class="sub">${g.members.map(id=>esc(stu(id)?.name)).join(', ')}</div></td><td class="n"><b>${g.pts}</b></td><td class="n">${g.hist.filter(h=>h.ok).length}/${g.hist.length}</td>${s.mode==='defi'?`<td class="n">${g.wins||0}</td>`:''}<td class="n">${g.maxLevel?starsH(g.maxLevel):'–'}</td>`}));
+    rows=[...s.groups].sort((a,b)=>b.pts-a.pts).map(g=>({k:g.pts,html:`<td><b>${esc(g.name)}</b><div class="sub">${g.members.map(id=>esc(stu(id)?.name)).join(', ')}</div></td><td class="n"><b>${fmtP(g.pts)}</b></td><td class="n">${g.hist.filter(h=>h.ok).length}/${g.hist.length}</td>${s.mode==='defi'?`<td class="n">${g.wins||0}</td>`:''}<td class="n">${g.maxLevel?starsH(g.maxLevel):'–'}</td>`}));
   }else if(clsView==='eleves'){
     head=`<tr><th>#</th><th>Élève</th><th class="n">Pts</th><th class="n">Réussites</th><th class="n">Niv. max</th></tr>`;
     const ids=new Set([...s.groups.flatMap(g=>g.members),...Object.keys(st)]);
-    rows=[...ids].map(id=>{const m=st[id]||{pts:0,ok:0,n:0,max:0};return{k:m.pts,html:`<td>${esc(stu(id)?.name||'?')}</td><td class="n"><b>${m.pts}</b></td><td class="n">${m.ok}/${m.n}</td><td class="n">${m.max?starsH(m.max):'–'}</td>`}}).sort((a,b)=>b.k-a.k);
+    rows=[...ids].map(id=>{const m=st[id]||{pts:0,ok:0,n:0,max:0};return{k:m.pts,html:`<td>${esc(stu(id)?.name||'?')}</td><td class="n"><b>${fmtP(m.pts)}</b></td><td class="n">${m.ok}/${m.n}</td><td class="n">${m.max?starsH(m.max):'–'}</td>`}}).sort((a,b)=>b.k-a.k);
   }else{
     if(!cls){$('#main').innerHTML='<div class="card empty">Aucune classe.</div>';return}
     head=`<tr><th>#</th><th>Élève</th><th class="n">Points cumulés</th></tr>`;
-    rows=cls.students.map(x=>{const t=cumul(x);return{k:t,html:`<td>${esc(x.name)}</td><td class="n"><b>${t}</b></td>`}}).sort((a,b)=>b.k-a.k);
+    rows=cls.students.map(x=>{const t=cumul(x);return{k:t,html:`<td>${esc(x.name)}</td><td class="n"><b>${fmtP(t)}</b></td>`}}).sort((a,b)=>b.k-a.k);
   }
   let rank=0,prev=null;
   const body=rows.map((r,i)=>{if(r.k!==prev){rank=i+1;prev=r.k}return`<tr class="p${rank}"><td class="rank">${rank===1?'🥇':rank===2?'🥈':rank===3?'🥉':rank}</td>${r.html}</tr>`}).join('');
