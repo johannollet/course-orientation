@@ -63,6 +63,8 @@ textarea{min-height:120px}
 .cur{background:#fff6ec;border:1px dashed var(--orange);border-radius:10px;padding:8px 10px;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .cur .num{font-size:22px;font-weight:800}
 .timer{margin-left:auto;font-variant-numeric:tabular-nums;font-weight:700;color:var(--orange)}
+.timer.low{color:var(--red)}
+.timer.over{color:#fff;background:var(--red);padding:1px 8px;border-radius:8px}
 .dots{display:flex;gap:3px;flex-wrap:wrap}
 .dot{width:18px;height:18px;border-radius:50%;font-size:10px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700}
 .dot.ok{background:var(--ok)} .dot.ko{background:var(--red)}
@@ -406,7 +408,7 @@ function rSeance(){
 
 function rSetup(){
   if(!S.classes.length){$('#main').innerHTML=`<div class="card empty"><h2>Aucune classe</h2><p>Crée une classe (ou importe tes listes Excel) pour former les équipes.</p><div class="row" style="justify-content:center"><button class="btn primary" onclick="go('classes')">👥 Créer une classe</button><button class="btn" onclick="joinScreen()">📡 Rejoindre une séance</button></div></div>`;return}
-  if(!setup)setup={classId:(S.classes.find(c=>c.id===S.classId)||S.classes[0]).id,mode:'progression',size:2,compo:'heterogene',startLevel:1,pairing:'niveau',nGroups:0,groups:null,absent:{},allowed:[1,2,3,4,5,6],online:false};
+  if(!setup)setup={classId:(S.classes.find(c=>c.id===S.classId)||S.classes[0]).id,mode:'progression',size:2,compo:'heterogene',startLevel:1,pairing:'niveau',nGroups:0,groups:null,absent:{},allowed:[1,2,3,4,5,6],online:false,limit:defLimit()};
   const cls=S.classes.find(c=>c.id===setup.classId)||S.classes[0];setup.classId=cls.id;
   const seg=(key,obj)=>`<div class="seg">${Object.entries(obj).map(([k,[t,d]])=>`<button class="${String(setup[key])===k?'on':''}" onclick="setup.${key}=${isNaN(k)?`'${k}'`:k};setup.groups=null;rSetup()"><b>${t}</b><small>${d}</small></button>`).join('')}</div>`;
   const sizes=setup.mode==='defi'?{1:['1 contre 1','Solo'],2:['2 contre 2','Duos'],3:['3 contre 3','Trios']}:{1:['Solo','1 élève'],2:['Duo','2 élèves'],3:['Trio','3 élèves']};
@@ -421,6 +423,7 @@ function rSetup(){
   <div class="field"><label>Niveaux autorisés pour cette séance <span class="sub">(touche pour activer / désactiver)</span></label><div class="seg">${[1,2,3,4,5,6].map(l=>`<button class="${setup.allowed.includes(l)?'on':''}" onclick="toggleSetupLv(${l})" style="flex:1 1 60px;text-align:center">${starsH(l)}<small>${l}★</small></button>`).join('')}</div></div>
   ${setup.mode==='progression'?`<div class="field"><label>Niveau de départ</label><div class="seg">${setup.allowed.map(l=>`<button class="${setup.startLevel===l?'on':''}" onclick="setup.startLevel=${l};rSetup()" style="flex:1 1 60px;text-align:center">${starsH(l)}</button>`).join('')}<button class="${setup.startLevel==='auto'?'on':''}" onclick="setup.startLevel='auto';rSetup()" style="flex:1 1 120px;text-align:center"><b>Auto</b><small>selon niveau élèves</small></button></div></div>`:''}
   ${setup.mode==='defi'?`<div class="field"><label>Appariement des duels</label>${seg('pairing',{niveau:['Niveau proche','Les équipes de même niveau s\'affrontent'],aleatoire:['Aléatoire','Adversaires tirés au sort'],libre:['Au choix des élèves','Chaque équipe choisit son adversaire']})}</div>`:''}
+  <div class="field"><label>⏱ Temps limite pour valider une carte</label>${limitEditor(setup.limit,'setup.limit','rSetup()')}</div>
   <div class="field"><label>Tablettes</label><div class="seg"><button class="${setup.online?'':'on'}" onclick="setup.online=false;rSetup()"><b>📱 Une seule tablette</b><small>fonctionne sans internet</small></button><button class="${setup.online?'on':''}" onclick="setup.online=true;rSetup()"><b>📡 Plusieurs tablettes synchronisées</b><small>internet requis (partage de connexion 5G)</small></button></div>
   ${setup.online&&!canSync()?'<div class="warn" style="margin-top:8px">Le mode multi-tablettes fonctionne seulement avec la version en ligne de l\'appli (adresse netlify.app).</div>':''}</div>
   <div class="field"><label>Nombre d'équipes <span class="sub">(vide = automatique)</span></label><input type="number" min="1" max="${present.length}" value="${setup.nGroups||''}" placeholder="auto" onchange="setup.nGroups=+this.value||0;setup.groups=null;rSetup()" style="max-width:140px"></div>
@@ -463,7 +466,7 @@ async function startSession(){
   const cls0=S.classes.find(c=>c.id===setup.classId);const roster={};cls0.students.forEach(x=>{roster[x.id]={name:x.name,level:x.level||3}});
   if(setup.online&&!canSync())return toast('Multi-tablettes : utilise la version en ligne de l\'appli');
   const online=setup.online;
-  S.session={id:uid(),v2:true,classId:setup.classId,className:cls0.name,roster,mode:setup.mode,size:setup.size,pairing:setup.pairing,allowed:[...setup.allowed],created:Date.now(),duels:[],round:0,
+  S.session={id:uid(),v2:true,classId:setup.classId,className:cls0.name,roster,mode:setup.mode,size:setup.size,pairing:setup.pairing,allowed:[...setup.allowed],limit:JSON.parse(JSON.stringify(setup.limit)),created:Date.now(),duels:[],round:0,
     groups:gl.map((m,i)=>{
       let start=setup.startLevel==='auto'?Math.round(avgLevel(m)):setup.startLevel;
       const al=[...setup.allowed].sort((x,y)=>x-y);start=al.reduce((p,c)=>Math.abs(c-start)<Math.abs(p-start)?c:p,al[0]);
@@ -490,9 +493,11 @@ function rDash(){
     ${s.room||!isProf()?'':`<button class="btn sm" onclick="undo()" ${undoStack.length?'':'disabled'}>↶ Annuler</button>`}
     <button class="btn sm" onclick="go('classement')">🏆</button>
     ${P(`<button class="btn sm" onclick="editLevels()">★ Niveaux</button>
+    <button class="btn sm" onclick="editLimit()">⏱ Temps</button>
     <button class="btn sm" onclick="editTeams()">✏️ Équipes</button>
     <button class="btn sm danger" onclick="endSession()">Terminer</button>`)}</div>
   ${syncBanner()}
+  ${S.session.limit&&S.session.limit.type!=='none'?`<div class="info">⏱ Temps limite : ${limText(S.session.limit)}</div>`:''}
   ${allowedLv().length<6?`<div class="info">Niveaux autorisés : ${allowedLv().map(l=>starsH(l)).join(' · ')}</div>`:''}
   <div class="grid">${s.groups.map(gCard).join('')}</div>`;
   $('#main').innerHTML=h;tick();
@@ -501,7 +506,7 @@ function gCard(g){
   const mem=g.members.map(id=>esc(stu(id)?.name||'?')).join(' · ');
   const dots=g.hist.slice(-12).map(x=>`<span class="dot ${x.ok?'ok':'ko'}" title="Carte ${esc(x.carte)}">${x.stars}</span>`).join('');
   let body;
-  if(g.cur)body=`<div class="cur"><span>Carte</span><span class="num">${esc(g.cur.carte)}</span>${starsH(g.cur.stars)}<span class="timer" data-t0="${g.cur.t0}"></span></div>
+  if(g.cur)body=`<div class="cur"><span>Carte</span><span class="num">${esc(g.cur.carte)}</span>${starsH(g.cur.stars)}<span class="timer" data-t0="${g.cur.t0}" data-lim="${g.cur.lim||0}"></span></div>
     <div class="row"><button class="btn primary grow" style="padding:14px" onclick="openValidate('${g.id}')">✅ Valider le code</button><button class="btn" title="Changer / retirer la carte" onclick="cardMenu('${g.id}')">⋯</button></div>`;
   else body=`<button class="btn big orange" onclick="newCard('${g.id}')">🧭 Nouvelle carte${S.session.mode==='progression'?' '+starsH(g.level).replace('st"','st" style="color:#fff"'):''}</button>`;
   return `<div class="gcard" style="--c:${g.color}"><div class="ghead"><b>${esc(g.name)}</b><span class="pts">${g.pts} pts</span></div>
@@ -554,7 +559,7 @@ function randomCard(){const c=pickCard(assign.st||1,G(assign.gid));if(!c)return 
 function confirmAssign(){
   const chk=cardCheck(assign.num);if(!chk.ok)return toast('Vérifie le numéro de carte');
   if(!assign.st||!allowedLv().includes(assign.st))return toast("Choisis un nombre d'étoiles autorisé");
-  const gid=assign.gid,cur={carte:chk.card.carte,stars:assign.st,t0:Date.now()};
+  const gid=assign.gid,cur={carte:chk.card.carte,stars:assign.st,t0:Date.now(),lim:limitFor(assign.st)};
   closeModal();
   act('carte '+cur.carte,()=>{const g=G(gid);if(g)g.cur={...cur}});
 }
@@ -578,7 +583,7 @@ function openValidate(gid){
   if(card.dep)f+=`<div class="cgroup"><small>Départ</small><input class="cbox letter" data-k="dep" maxlength="1" autocomplete="off" autocapitalize="characters"></div><div class="sep"></div>`;
   card.code.forEach((v,i)=>{f+=`<div class="cgroup"><small>${i+1}</small><input class="cbox" data-k="${i}" maxlength="2" inputmode="numeric" pattern="[0-9]*" autocomplete="off"></div>`});
   if(card.arr)f+=`<div class="sep"></div><div class="cgroup"><small>Arrivée</small><input class="cbox letter" data-k="arr" maxlength="1" autocomplete="off" autocapitalize="characters"></div>`;
-  openModal(`<h2>${esc(g.name)}</h2><p class="sub">Carte <b>${esc(c.carte)}</b> ${starsH(c.stars)} · <span class="timer" data-t0="${c.t0}"></span></p>
+  openModal(`<h2>${esc(g.name)}</h2><p class="sub">Carte <b>${esc(c.carte)}</b> ${starsH(c.stars)} · <span class="timer" data-t0="${c.t0}" data-lim="${c.lim||0}"></span></p>
   <p style="margin:0">Tape ton code secret :</p><div class="codeform" id="cf">${f}</div><div id="cfmsg" class="sub" style="text-align:center;min-height:20px"></div>
   <div class="row" style="justify-content:flex-end"><button class="btn" onclick="closeModal()">Annuler</button><button class="btn primary" style="padding:12px 22px" onclick="submitCode('${gid}')">Valider</button></div>`,true);
   const ins=[...document.querySelectorAll('#cf .cbox')];
@@ -609,6 +614,7 @@ function award(g,pts){g.pts+=pts}
 function applyResult(gid,ok,errs){
   const g0=G(gid);if(!g0||!g0.cur)return;
   const t0=g0.cur.t0,now=Date.now(),time=now-t0;
+  if(g0.cur.lim&&time>g0.cur.lim&&ok!==null){ok=false;errs=['time']}
   const info=act('validation '+g0.name,()=>resultMut(gid,t0,ok,time,now));
   if(!info)return;
   if(info.duel)showResult(ok,errs,`${info.pts?'+'+info.pts+' points':'0 point'} · ${fmtT(time)}`,info.msg,info.name);
@@ -625,12 +631,14 @@ function resultMut(gid,t0,ok,time,now){
   if(ok)g.maxLevel=Math.max(g.maxLevel||0,st);
   const before=g.level;
   if(S.session.mode==='progression')g.level=ok?lvUp(g.level):lvDown(g.level);
-  g.hist.push({carte:c.carte,stars:st,ok,pts,time,ts:now,members:[...g.members]});
+  g.hist.push({carte:c.carte,stars:st,ok,pts,time,ts:now,members:[...g.members],late:!!(c.lim&&time>c.lim)});
   g.cur=null;
   return{pts,before,level:g.level,name:g.name};
 }
 function showResult(ok,errs,line,line2,name){
   let det='';
+  if(errs.includes('time')){
+    openModal(`<div class="result ko"><div class="ic">⏰</div><h2>Temps dépassé !</h2><p class="sub">${esc(name)}</p><p>La carte est comptée comme un échec.</p><p style="font-size:20px;font-weight:800">${line}</p>${line2?`<p>${line2}</p>`:''}<button class="btn primary big" onclick="closeModal()">OK</button></div>`);return}
   if(!ok&&errs.length&&S.settings.showErrors!=='none'){
     if(S.settings.showErrors==='count')det=`<p>${errs.length} erreur${errs.length>1?'s':''} dans le code.</p>`;
     else det=`<p>À revoir : ${errs.map(k=>k==='dep'?'lettre de départ':k==='arr'?"lettre d'arrivée":'balise n°'+(+k+1)).join(', ')}</p>`;
@@ -718,6 +726,7 @@ function rDefi(){
     ${s.room||!isProf()?'':`<button class="btn sm" onclick="undo()" ${undoStack.length?'':'disabled'}>↶ Annuler</button>`}
     <button class="btn sm" onclick="go('classement')">🏆</button>
     ${P(`<button class="btn sm" onclick="editLevels()">★ Niveaux</button>
+    <button class="btn sm" onclick="editLimit()">⏱ Temps</button>
     ${libre?`<button class="btn sm" onclick="setPairing('niveau')">🔀 Duels automatiques</button>`:`<button class="btn sm" onclick="newRound()">🔀 Nouveaux duels</button><button class="btn sm" onclick="setPairing('libre')">🤝 Adversaires au choix</button>`}
     <button class="btn sm danger" onclick="endSession()">Terminer</button>`)}</div>
     ${syncBanner()}
@@ -740,7 +749,7 @@ function duelCard(d,i){
   let foot='';
   const endBtn=S.session.pairing==='libre'&&d.state==='wait'?`<button class="btn sm ghost" style="margin-top:6px" onclick="endDuel('${d.id}')">${d.manche?'🏁 Fin du duel':'✕ Annuler ce duel'}</button>`:'';
   if(d.state==='wait')foot=`<p class="sub" style="margin:10px 0 6px">Niveau de la manche ${d.manche+1} :</p><div class="starpick" style="grid-template-columns:repeat(6,1fr)">${[1,2,3,4,5,6].map(l=>`<button class="${d.stars===l?'on':''}" ${allowedLv().includes(l)?'':'disabled style="opacity:.25"'} style="font-size:13px;padding:8px 2px" onclick="setDuelStars('${d.id}',${l})">${l}★</button>`).join('')}</div><button class="btn orange big" style="margin-top:8px" onclick="launchDuel('${d.id}')">▶ Lancer la manche</button>${endBtn}`;
-  else if(d.state==='run')foot=`<div class="row" style="margin-top:8px"><span class="sub">${starsH(d.stars)} · <span class="timer" data-t0="${d.t0}"></span></span><span class="grow"></span>${P(`<button class="btn sm ghost" onclick="closeDuel('${d.id}')">Clore la manche</button>`)}</div>`;
+  else if(d.state==='run')foot=`<div class="row" style="margin-top:8px"><span class="sub">${starsH(d.stars)} · <span class="timer" data-t0="${d.t0}" data-lim="${d.lim||0}"></span></span><span class="grow"></span>${P(`<button class="btn sm ghost" onclick="closeDuel('${d.id}')">Clore la manche</button>`)}</div>`;
   else foot=`<div class="info" style="margin:8px 0">${d.winner?`🏆 <b>${esc((d.winner==='a'?A:B).name)}</b> remporte la manche !`:'Manche nulle : aucun code juste.'}</div><div class="row"><button class="btn big grow" style="width:auto" onclick="nextManche('${d.id}')">➡ Manche suivante</button>${S.session.pairing==='libre'?`<button class="btn" onclick="endDuel('${d.id}')">🏁 Fin du duel</button>`:''}</div>`;
   return`<div class="duel"><div class="dhead"><b>Duel ${i+1}${d.manche?` · manche ${d.manche}`:''}</b><span class="score">${d.score.a} – ${d.score.b}</span></div>
    <div class="sides">${side(A,'a')}<div class="vs">VS</div>${side(B,'b')}</div>${foot}</div>`;
@@ -750,10 +759,10 @@ function launchDuel(did){
   const d=D(did);if(!d||d.state!=='wait')return render();const A=G(d.a),B=G(d.b);
   const ca=pickCard(d.stars,A);if(!ca)return toast('Aucune carte à ce niveau');
   let cb=pickCard(d.stars,B);let tries=0;while(cb&&cb.carte===ca.carte&&S.cards.length>1&&tries++<20)cb=pickCard(d.stars,B);
-  const t0=Date.now(),st=d.stars,i=S.session.duels.indexOf(d);
+  const t0=Date.now(),st=d.stars,i=S.session.duels.indexOf(d),lim=limitFor(d.stars);
   const okLaunch=act('lancement duel',()=>{const d=D(did);if(!d||d.state!=='wait')return false;const A=G(d.a),B=G(d.b);
-    A.cur={carte:ca.carte,stars:st,t0,duel:d.id,side:'a'};B.cur={carte:cb.carte,stars:st,t0,duel:d.id,side:'b'};
-    Object.assign(d,{stars:st,state:'run',t0,res:{},winner:null,cards:{a:ca.carte,b:cb.carte},manche:d.manche+1});return true});
+    A.cur={carte:ca.carte,stars:st,t0,lim,duel:d.id,side:'a'};B.cur={carte:cb.carte,stars:st,t0,lim,duel:d.id,side:'b'};
+    Object.assign(d,{stars:st,state:'run',t0,lim,res:{},winner:null,cards:{a:ca.carte,b:cb.carte},manche:d.manche+1});return true});
   if(!okLaunch)return;
   openModal(`<h2>Duel ${i+1} — manche ${D(did)?.manche||''} ${starsH(st)}</h2><div class="sides" style="margin-top:12px"><div class="side" style="--c:${A.color}"><b>${esc(A.name)}</b><span class="sub">Carte n°</span><div class="bignum">${esc(ca.carte)}</div></div><div class="vs">VS</div><div class="side" style="--c:${B.color}"><b>${esc(B.name)}</b><span class="sub">Carte n°</span><div class="bignum">${esc(cb.carte)}</div></div></div><button class="btn primary big" style="margin-top:14px" onclick="closeModal()">Partez !</button>`);
 }
@@ -924,6 +933,24 @@ async function joinRoom(){
   }catch(e){$('#joinmsg').textContent='❌ Connexion impossible : vérifie internet ('+e.message+').'}
 }
 
+/* ---- temps limite ---- */
+function defLimit(){return{type:'none',same:10,per:[6,8,10,12,15,20]}}
+function limitFor(st){const L=S.session&&S.session.limit;if(!L||L.type==='none')return 0;const m=L.type==='same'?+L.same:+(L.per||[])[st-1];return m>0?Math.round(m*60000):0}
+function limText(L){if(!L||L.type==='none')return'aucun';if(L.type==='same')return L.same+' min par carte';return L.per.map((m,i)=>(i+1)+'★ '+m+' min').join(' · ')}
+function limitEditor(L,path,after){
+  const set=(k,v)=>`${path}.${k}=${v};${after}`;
+  return`<div class="seg">${[['none','Pas de limite','temps libre'],['same','Même temps','pour toutes les cartes'],['level','Selon le niveau','plus long pour les cartes difficiles']].map(([k,t,d])=>`<button class="${L.type===k?'on':''}" onclick="${set('type',`'${k}'`)}"><b>${t}</b><small>${d}</small></button>`).join('')}</div>
+  ${L.type==='same'?`<div class="row" style="margin-top:8px"><input type="number" min="0.5" step="0.5" value="${L.same}" style="max-width:100px" onchange="${path}.same=Math.max(0.5,+this.value||10);${after}"><span>minutes par carte</span></div>`:''}
+  ${L.type==='level'?`<div class="row" style="margin-top:8px">${L.per.map((m,i)=>`<label style="display:flex;flex-direction:column;align-items:center;gap:2px;font-size:13px">${starsH(i+1)}<input type="number" min="0.5" step="0.5" value="${m}" style="width:70px;text-align:center" onchange="${path}.per[${i}]=Math.max(0.5,+this.value||${m});${after}"></label>`).join('')}<span class="sub">minutes</span></div>`:''}
+  ${L.type!=='none'?'<p class="sub" style="margin:6px 0 0">Une carte validée après le temps limite compte comme un échec, même avec un code juste.</p>':''}`;
+}
+let limDraft=null;
+function editLimit(){needPin(()=>{limDraft=JSON.parse(JSON.stringify(S.session.limit||defLimit()));rLimit()})}
+function rLimit(){openModal(`<h2>⏱ Temps limite</h2>${limitEditor(limDraft,'limDraft','rLimit()')}
+  <p class="sub">Le nouveau temps s'applique aux cartes prises à partir de maintenant.</p>
+  <div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn" onclick="closeModal()">Annuler</button><button class="btn primary" onclick="saveLimit()">Enregistrer</button></div>`)}
+function saveLimit(){const L=JSON.parse(JSON.stringify(limDraft));closeModal();act('temps limite',()=>{S.session.limit=L});toast('Temps limite : '+limText(L))}
+
 /* ============ CLASSEMENT ============ */
 function stats(){
   const s=S.session;const map={};
@@ -1065,7 +1092,13 @@ function backup(){const b=new Blob([JSON.stringify(S)],{type:'application/json'}
 function restore(){pickFile('.json',async f=>{try{const d=JSON.parse(await f.text());if(!d.cards)throw 0;S=Object.assign(defState(),d);save();render();toast('Sauvegarde restaurée')}catch(e){toast('Fichier invalide')}})}
 
 /* ============ chrono ============ */
-function tick(){document.querySelectorAll('.timer[data-t0]').forEach(e=>e.textContent='⏱ '+fmtT(Date.now()-+e.dataset.t0))}
+function tick(){document.querySelectorAll('.timer[data-t0]').forEach(e=>{
+  const el=Date.now()-+e.dataset.t0,lim=+e.dataset.lim||0;
+  if(!lim){e.textContent='⏱ '+fmtT(el);e.classList.remove('low','over');return}
+  const r=lim-el;
+  if(r>=0){e.textContent='⏳ '+fmtT(r);e.classList.toggle('low',r<60000);e.classList.remove('over')}
+  else{e.textContent='⏰ dépassé +'+fmtT(-r);e.classList.remove('low');e.classList.add('over')}
+})}
 setInterval(tick,1000);
 if(S.session&&S.session.room&&canSync()){startSync(S.session.room);poll()}
 render();
