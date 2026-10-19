@@ -626,11 +626,12 @@ function resultMut(gid,t0,ok,time,now){
   const c=g.cur;const st=c.stars;
   const key=String(c.carte);if(!g.done.includes(key))g.done.push(key);
   if(c.duel)return duelMut(g,ok,time,now);
+  const late=!!(c.lim&&time>c.lim);if(late)ok=false;
   const pts=ok?(S.settings.ptsMode==='stars'?st:1):0;
   award(g,pts);
   if(ok)g.maxLevel=Math.max(g.maxLevel||0,st);
   const before=g.level;
-  if(S.session.mode==='progression')g.level=ok?lvUp(g.level):lvDown(g.level);
+  if(S.session.mode==='progression'&&!late)g.level=ok?lvUp(g.level):lvDown(g.level);
   g.hist.push({carte:c.carte,stars:st,ok,pts,time,ts:now,members:[...g.members],late:!!(c.lim&&time>c.lim)});
   g.cur=null;
   return{pts,before,level:g.level,name:g.name};
@@ -638,7 +639,7 @@ function resultMut(gid,t0,ok,time,now){
 function showResult(ok,errs,line,line2,name){
   let det='';
   if(errs.includes('time')){
-    openModal(`<div class="result ko"><div class="ic">⏰</div><h2>Temps dépassé !</h2><p class="sub">${esc(name)}</p><p>La carte est comptée comme un échec.</p><p style="font-size:20px;font-weight:800">${line}</p>${line2?`<p>${line2}</p>`:''}<button class="btn primary big" onclick="closeModal()">OK</button></div>`);return}
+    openModal(`<div class="result ko"><div class="ic">⏰</div><h2>Temps dépassé !</h2><p class="sub">${esc(name)}</p><p>0 point, mais l'équipe garde son niveau.</p><p style="font-size:20px;font-weight:800">${line}</p>${line2?`<p>${line2}</p>`:''}<button class="btn primary big" onclick="closeModal()">OK</button></div>`);return}
   if(!ok&&errs.length&&S.settings.showErrors!=='none'){
     if(S.settings.showErrors==='count')det=`<p>${errs.length} erreur${errs.length>1?'s':''} dans le code.</p>`;
     else det=`<p>À revoir : ${errs.map(k=>k==='dep'?'lettre de départ':k==='arr'?"lettre d'arrivée":'balise n°'+(+k+1)).join(', ')}</p>`;
@@ -942,7 +943,7 @@ function limitEditor(L,path,after){
   return`<div class="seg">${[['none','Pas de limite','temps libre'],['same','Même temps','pour toutes les cartes'],['level','Selon le niveau','plus long pour les cartes difficiles']].map(([k,t,d])=>`<button class="${L.type===k?'on':''}" onclick="${set('type',`'${k}'`)}"><b>${t}</b><small>${d}</small></button>`).join('')}</div>
   ${L.type==='same'?`<div class="row" style="margin-top:8px"><input type="number" min="0.5" step="0.5" value="${L.same}" style="max-width:100px" onchange="${path}.same=Math.max(0.5,+this.value||10);${after}"><span>minutes par carte</span></div>`:''}
   ${L.type==='level'?`<div class="row" style="margin-top:8px">${L.per.map((m,i)=>`<label style="display:flex;flex-direction:column;align-items:center;gap:2px;font-size:13px">${starsH(i+1)}<input type="number" min="0.5" step="0.5" value="${m}" style="width:70px;text-align:center" onchange="${path}.per[${i}]=Math.max(0.5,+this.value||${m});${after}"></label>`).join('')}<span class="sub">minutes</span></div>`:''}
-  ${L.type!=='none'?'<p class="sub" style="margin:6px 0 0">Une carte validée après le temps limite compte comme un échec, même avec un code juste.</p>':''}`;
+  ${L.type!=='none'?'<p class="sub" style="margin:6px 0 0">Une carte validée après le temps limite rapporte 0 point, mais l\'équipe garde son niveau.</p>':''}`;
 }
 let limDraft=null;
 function editLimit(){needPin(()=>{limDraft=JSON.parse(JSON.stringify(S.session.limit||defLimit()));rLimit()})}
