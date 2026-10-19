@@ -180,7 +180,17 @@ try{S=JSON.parse(localStorage.getItem(LS))||defState()}catch(e){S=defState()}
 S=Object.assign(defState(),S);S.settings=Object.assign(defState().settings,S.settings);
 if(S.cards.some(c=>'stars' in c)){const m=new Map();S.cards.forEach(c=>{if(!m.has(String(c.carte))){const{stars,...r}=c;m.set(String(c.carte),r)}});S.cards=[...m.values()]}
 if(S.session)S.session.groups.forEach(g=>g.done=[...new Set((g.done||[]).map(k=>String(k).split('|')[0]))]);
-function save(){try{localStorage.setItem(LS,JSON.stringify(S))}catch(e){toast('⚠️ Sauvegarde impossible sur cet appareil')}}
+/* points cumulés : base de l'élève + ses points de chaque séance, recalculés à chaque validation */
+function sessPtsOf(sess){const m={};(sess.groups||[]).forEach(g=>(g.hist||[]).forEach(h=>(h.members||[]).forEach(id=>{m[id]=(m[id]||0)+(h.pts||0)})));return m}
+function recordSession(){
+  const sess=S.session;if(!sess||!sess.v2)return;
+  if(!S.classes.some(c=>c.id===sess.classId))return;
+  S.sessPts=S.sessPts||{};
+  S.sessPts[sess.id]={classId:sess.classId,date:sess.created,pts:sessPtsOf(sess)};
+}
+function cumul(st){let t=st.pts||0;const all=S.sessPts||{};for(const k in all){const e=all[k];if(e.pts&&e.pts[st.id])t+=e.pts[st.id]}return t}
+function sessSum(st){return cumul(st)-(st.pts||0)}
+function save(){try{recordSession();localStorage.setItem(LS,JSON.stringify(S))}catch(e){toast('⚠️ Sauvegarde impossible sur cet appareil')}}
 
 let tab=S.session?'seance':(S.cards.length?'seance':'codes');
 let unlocked=false, modalSticky=false, setup=null, undoStack=[], clsView='groupes', codeFilter={q:'',st:0};
@@ -365,7 +375,7 @@ function downloadTemplate(){
 /* ============ SÉANCE ============ */
 const MODES={progression:['📈 Progression','Réussite → niveau +1, échec → niveau −1'],libre:['🎯 Niveau libre','L\'équipe choisit son niveau, points = étoiles'],defi:['⚔️ Défis','Duels 1v1, 2v2 ou 3v3 : le 1er code juste gagne']};
 const COMPOS={heterogene:['Hétérogènes','Niveaux mélangés, équipes équilibrées'],homogene:['Homogènes','Élèves de niveau proche ensemble'],aleatoire:['Aléatoires','Tirage au sort']};
-function score(s){return S.settings.levelSource==='points'?(s.pts||0)+Math.random()*.1:(s.level||3)+Math.random()*.1}
+function score(s){return S.settings.levelSource==='points'?cumul(s)+Math.random()*.1:(s.level||3)+Math.random()*.1}
 
 function rSeance(){
   if(!S.cards.length&&!S.session){$('#main').innerHTML=`<div class="card empty"><h2>Bienvenue 👋</h2><p>Commence par importer le fichier Excel des codes de tes cartes.</p><div class="row" style="justify-content:center"><button class="btn primary" onclick="go('codes')">🔑 Importer les codes</button><button class="btn" onclick="joinScreen()">📡 Rejoindre une séance</button></div><p class="sub" style="margin-top:14px">Tablette de juge ? Choisis « Rejoindre une séance » et tape le code donné par le prof : les codes et les équipes se chargent tout seuls.</p></div>`;return}
@@ -447,7 +457,7 @@ async function startSession(){
   setup=null;save();render();
   if(online)showRoom();
 }
-function endSession(){needPin(()=>confirmBox('Terminer la séance'+(isOnline()?' sur toutes les tablettes':'')+' ?<br><small class="sub">Les points sont ajoutés au classement cumulé de la classe. Pense à exporter si tu veux garder le détail.</small>',()=>{
+function endSession(){needPin(()=>confirmBox('Terminer la séance'+(isOnline()?' sur toutes les tablettes':'')+' ?<br><small class="sub">Les points sont déjà enregistrés dans le cumul de la classe. Pense à exporter si tu veux garder le détail.</small>',()=>{
   undoStack=[];tab='seance';
   if(isOnline()){act('fin de séance',()=>{S.session.ended=true});handleEnded();render();return}
   foldSession(S.session);S.session=null;save();render()},'Terminer'))}
@@ -821,10 +831,8 @@ window.addEventListener('online',()=>{poll();flush()});
 window.addEventListener('beforeunload',e=>{if(SYNC.pending.length){e.preventDefault();e.returnValue=''}});
 /* points cumulés : ajoutés aux élèves de la classe quand la séance se termine */
 function foldSession(sess){
-  if(!sess||!sess.v2)return;S.folded=S.folded||[];if(S.folded.includes(sess.id))return;
-  const cls=S.classes.find(c=>c.id===sess.classId);if(!cls)return;
-  sess.groups.forEach(g=>g.hist.forEach(h=>h.members.forEach(id=>{const s=cls.students.find(x=>x.id===id);if(s)s.pts=(s.pts||0)+(h.pts||0)})));
-  S.folded.push(sess.id);if(S.folded.length>200)S.folded=S.folded.slice(-200);
+  if(!sess||!sess.v2)return;
+  if(S.classes.some(c=>c.id===sess.classId)){S.sessPts=S.sessPts||{};S.sessPts[sess.id]={classId:sess.classId,date:sess.created,pts:sessPtsOf(sess)}}
 }
 function handleEnded(){
   if(!S.session||!S.session.ended)return;
@@ -883,8 +891,7 @@ function rClassement(){
   }else{
     if(!cls){$('#main').innerHTML='<div class="card empty">Aucune classe.</div>';return}
     head=`<tr><th>#</th><th>Élève</th><th class="n">Points cumulés</th></tr>`;
-    const add=id=>(s&&s.v2&&s.classId===cls.id&&st[id])?st[id].pts:0;
-    rows=cls.students.map(x=>{const t=(x.pts||0)+add(x.id);return{k:t,html:`<td>${esc(x.name)}</td><td class="n"><b>${t}</b></td>`}}).sort((a,b)=>b.k-a.k);
+    rows=cls.students.map(x=>{const t=cumul(x);return{k:t,html:`<td>${esc(x.name)}</td><td class="n"><b>${t}</b></td>`}}).sort((a,b)=>b.k-a.k);
   }
   let rank=0,prev=null;
   const body=rows.map((r,i)=>{if(r.k!==prev){rank=i+1;prev=r.k}return`<tr class="p${rank}"><td class="rank">${rank===1?'🥇':rank===2?'🥈':rank===3?'🥉':rank}</td>${r.html}</tr>`}).join('');
@@ -900,7 +907,7 @@ function rClassement(){
 function exportResults(){
   const s=S.session;const cls=curClass();const st=stats();const sheets=[];
   if(!cls&&s)sheets.push({name:'Élèves',rows:[['Élève','Points séance','Réussites','Essais','Niveau max'],...Object.keys(s.roster||{}).map(id=>{const m=st[id]||{pts:0,ok:0,n:0,max:0};return[stu(id).name,m.pts,m.ok,m.n,m.max||'']}).sort((a,b)=>b[1]-a[1])]});
-  if(cls)sheets.push({name:'Élèves',rows:[['Élève','Points séance','Réussites','Essais','Niveau max','Points cumulés'],...cls.students.map(x=>{const m=st[x.id]||{pts:0,ok:0,n:0,max:0};return[x.name,m.pts,m.ok,m.n,m.max||'',(x.pts||0)+(s&&s.v2&&s.classId===cls.id?m.pts:0)]}).sort((a,b)=>b[1]-a[1]||b[5]-a[5])]});
+  if(cls)sheets.push({name:'Élèves',rows:[['Élève','Points séance','Réussites','Essais','Niveau max','Points cumulés'],...cls.students.map(x=>{const m=st[x.id]||{pts:0,ok:0,n:0,max:0};return[x.name,m.pts,m.ok,m.n,m.max||'',cumul(x)]}).sort((a,b)=>b[1]-a[1]||b[5]-a[5])]});
   if(s){
     sheets.push({name:'Équipes',rows:[['Équipe','Membres','Points','Réussites','Essais','Victoires défi'],...[...s.groups].sort((a,b)=>b.pts-a.pts).map(g=>[g.name,g.members.map(id=>stu(id)?.name).join(', '),g.pts,g.hist.filter(h=>h.ok).length,g.hist.length,g.wins||0])]});
     const H=[];s.groups.forEach(g=>g.hist.forEach(h=>H.push([new Date(h.ts).toLocaleTimeString('fr-FR'),g.name,h.carte,h.stars,h.ok?'Réussi':'Échec',h.pts,h.time!=null?fmtT(h.time):'',h.duel?(h.win?'Victoire':'Défi'):'',h.ts])));
@@ -917,12 +924,12 @@ function rClasses(){
   <div class="info">Import Excel : <b>une feuille par classe</b> (le nom de la feuille = nom de la classe), ou une colonne « Classe ». Colonnes reconnues : Nom, Prénom, Niveau (1 à 6, facultatif).</div>`;
   if(!S.classes.length){$('#main').innerHTML=h+'<div class="card empty">Aucune classe pour l\'instant.</div>';return}
   h+=`<div class="seg" style="margin-bottom:12px">${S.classes.map(c=>`<button class="${c.id===cls.id?'on':''}" style="flex:0 1 auto;text-align:center" onclick="S.classId='${c.id}';save();rClasses()"><b>${esc(c.name)}</b><small>${c.students.length} élèves</small></button>`).join('')}</div>
-  <div class="card"><div class="toolbar"><h2 style="font-size:18px">${esc(cls.name)}</h2><button class="btn sm" onclick="renameClass()">Renommer</button><button class="btn sm" onclick="confirmBox('Remettre à zéro les points cumulés de ${esc(cls.name).replace(/'/g,'')} ?',()=>{curCls().students.forEach(s=>s.pts=0);save();rClasses()},'Remettre à zéro')">Points à 0</button><button class="btn sm danger" onclick="delClass()">Supprimer</button></div>
-  <p class="sub">Le <b>niveau</b> (1 = débutant … 6 = expert) sert à former des équipes homogènes ou hétérogènes et à fixer le niveau de départ « auto ».</p>
+  <div class="card"><div class="toolbar"><h2 style="font-size:18px">${esc(cls.name)}</h2><button class="btn sm" onclick="renameClass()">Renommer</button><button class="btn sm" onclick="resetPts()">Points à 0</button><button class="btn sm danger" onclick="delClass()">Supprimer</button></div>
+  <p class="sub">Les points cumulés se mettent à jour à chaque validation, y compris pendant une séance multi-tablettes.<br>Le <b>niveau</b> (1 = débutant … 6 = expert) sert à former des équipes homogènes ou hétérogènes et à fixer le niveau de départ « auto ».</p>
   <div class="tablewrap"><table><tr><th>Élève</th><th>Niveau</th><th class="n">Pts cumulés</th><th></th></tr>
   ${cls.students.map(s=>`<tr><td><input type="text" value="${esc(s.name)}" onchange="stu('${s.id}').name=this.value.trim()||'?';save()"></td>
     <td><select style="width:70px" onchange="stu('${s.id}').level=+this.value;save()">${[1,2,3,4,5,6].map(l=>`<option ${s.level===l?'selected':''}>${l}</option>`).join('')}</select></td>
-    <td class="n"><input type="number" style="width:80px;text-align:right" value="${s.pts||0}" onchange="stu('${s.id}').pts=+this.value||0;save()"></td>
+    <td class="n"><input type="number" style="width:80px;text-align:right" value="${cumul(s)}" onchange="const x=stu('${s.id}');x.pts=(+this.value||0)-sessSum(x);save()"></td>
     <td><button class="btn sm ghost" onclick="curCls().students=curCls().students.filter(x=>x.id!=='${s.id}');save();rClasses()">🗑</button></td></tr>`).join('')}</table></div>
   <h3>Ajouter des élèves</h3><p class="sub">Un élève par ligne. Tu peux ajouter le niveau après un point-virgule : <i>Léa Martin;4</i></p>
   <textarea id="addst" placeholder="Léa Martin;4&#10;Tom Durand;2&#10;Inès Bernard"></textarea>
@@ -930,6 +937,10 @@ function rClasses(){
   $('#main').innerHTML=h;
 }
 const curCls=()=>S.classes.find(c=>c.id===S.classId);
+function resetPts(){const c=curCls();confirmBox('Remettre à zéro les points cumulés de '+esc(c.name)+' ?<br><small class="sub">Les points de la séance en cours (s\'il y en a une) seront recomptés à partir de maintenant.</small>',()=>{
+  c.students.forEach(s=>s.pts=0);const all=S.sessPts||{};for(const k in all)if(all[k].classId===c.id)delete all[k];
+  if(S.session&&S.session.classId===c.id){const m=sessPtsOf(S.session);c.students.forEach(s=>{s.pts=-(m[s.id]||0)})}
+  save();rClasses()},'Remettre à zéro')}
 function addClass(){window._ac=()=>{const n=$('#cn').value.trim();if(!n)return;const c={id:uid(),name:n,students:[]};S.classes.push(c);S.classId=c.id;save();closeModal();rClasses()};
   openModal(`<h2>Nouvelle classe</h2><input type="text" id="cn" placeholder="ex : 5e B" autofocus onkeydown="if(event.key==='Enter')_ac()"><div class="row" style="justify-content:flex-end;margin-top:12px"><button class="btn" onclick="closeModal()">Annuler</button><button class="btn primary" onclick="_ac()">Créer</button></div>`)}
 function renameClass(){const c=curCls();window._rc=()=>{const n=$('#cn').value.trim();if(n){c.name=n;save()}closeModal();rClasses()};
