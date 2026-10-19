@@ -420,7 +420,7 @@ function rSetup(){
   ${setup.size>1?`<div class="field"><label>Composition des équipes</label>${seg('compo',COMPOS)}</div>`:''}
   <div class="field"><label>Niveaux autorisés pour cette séance <span class="sub">(touche pour activer / désactiver)</span></label><div class="seg">${[1,2,3,4,5,6].map(l=>`<button class="${setup.allowed.includes(l)?'on':''}" onclick="toggleSetupLv(${l})" style="flex:1 1 60px;text-align:center">${starsH(l)}<small>${l}★</small></button>`).join('')}</div></div>
   ${setup.mode==='progression'?`<div class="field"><label>Niveau de départ</label><div class="seg">${setup.allowed.map(l=>`<button class="${setup.startLevel===l?'on':''}" onclick="setup.startLevel=${l};rSetup()" style="flex:1 1 60px;text-align:center">${starsH(l)}</button>`).join('')}<button class="${setup.startLevel==='auto'?'on':''}" onclick="setup.startLevel='auto';rSetup()" style="flex:1 1 120px;text-align:center"><b>Auto</b><small>selon niveau élèves</small></button></div></div>`:''}
-  ${setup.mode==='defi'?`<div class="field"><label>Appariement des duels</label>${seg('pairing',{niveau:['Niveau proche','Les équipes de même niveau s\'affrontent'],aleatoire:['Aléatoire','Adversaires tirés au sort']})}</div>`:''}
+  ${setup.mode==='defi'?`<div class="field"><label>Appariement des duels</label>${seg('pairing',{niveau:['Niveau proche','Les équipes de même niveau s\'affrontent'],aleatoire:['Aléatoire','Adversaires tirés au sort'],libre:['Au choix des élèves','Chaque équipe choisit son adversaire']})}</div>`:''}
   <div class="field"><label>Tablettes</label><div class="seg"><button class="${setup.online?'':'on'}" onclick="setup.online=false;rSetup()"><b>📱 Une seule tablette</b><small>fonctionne sans internet</small></button><button class="${setup.online?'on':''}" onclick="setup.online=true;rSetup()"><b>📡 Plusieurs tablettes synchronisées</b><small>internet requis (partage de connexion 5G)</small></button></div>
   ${setup.online&&!canSync()?'<div class="warn" style="margin-top:8px">Le mode multi-tablettes fonctionne seulement avec la version en ligne de l\'appli (adresse netlify.app).</div>':''}</div>
   <div class="field"><label>Nombre d'équipes <span class="sub">(vide = automatique)</span></label><input type="number" min="1" max="${present.length}" value="${setup.nGroups||''}" placeholder="auto" onchange="setup.nGroups=+this.value||0;setup.groups=null;rSetup()" style="max-width:140px"></div>
@@ -470,6 +470,7 @@ async function startSession(){
       return{id:uid(),name:m.length===1&&setup.size===1?stu(m[0]).name:'Équipe '+(i+1),color:COLORS[i%COLORS.length],members:m,level:start,maxLevel:0,pts:0,cur:null,hist:[],done:[],byes:0,wins:0}})};
   S.classId=setup.classId;undoStack=[];
   if(S.session.mode==='defi')pairDuels();
+  chal={me:null,opp:null};
   if(online){
     const btn=document.activeElement;if(btn&&btn.tagName==='BUTTON'){btn.disabled=true;btn.textContent='Connexion…'}
     try{await createRoom()}catch(e){S.session=null;save();toast('❌ Connexion impossible : vérifie internet');return rSetup()}
@@ -665,7 +666,9 @@ function addLiveGroup(){const nid=uid();act('nouvelle équipe',()=>{const s=S.se
 
 /* ---- DÉFIS ---- */
 function pairDuels(){
-  const s=S.session;let gs=[...s.groups];
+  const s=S.session;
+  if(s.pairing==='libre'){s.duels=(s.duels||[]).filter(d=>d.state==='run');s.round=(s.round||0)+1;s.bye=null;return}
+  let gs=[...s.groups];
   if(s.pairing==='aleatoire')shuffle(gs);
   else gs.sort((a,b)=>(b.pts-a.pts)||(avgLevel(b.members)-avgLevel(a.members))||(Math.random()-.5));
   let bye=null;
@@ -678,17 +681,48 @@ function pairDuels(){
 }
 function nearestLevel(st){const lv=levelsAvail();return lv.reduce((a,b)=>Math.abs(b-st)<Math.abs(a-st)?b:a,lv[0]||1)}
 const D=id=>S.session.duels.find(d=>d.id===id);
+let chal={me:null,opp:null};
+const busyIds=()=>new Set((S.session.duels||[]).flatMap(d=>[d.a,d.b]));
+const metKey=(a,b)=>[a,b].sort().join('|');
+function challengePanel(){
+  const s=S.session;const busy=busyIds();const free=s.groups.filter(g=>!busy.has(g.id)&&g.members.length);
+  if(chal.me&&!free.some(g=>g.id===chal.me))chal.me=null;if(chal.opp&&(!free.some(g=>g.id===chal.opp)||chal.opp===chal.me))chal.opp=null;
+  const chip=(g,on,fn,extra='')=>`<button class="chip" style="border:2px solid ${on?g.color:'var(--line)'};${on?'background:#e8f3ec;font-weight:800':''}" onclick="${fn}">${esc(g.name)} <span class="sub">${g.pts} pts</span>${extra}</button>`;
+  let h=`<div class="card"><h3 style="margin-top:0">🤝 Lancer un défi</h3>`;
+  if(free.length<2){h+=`<p class="sub" style="margin:0">${free.length?`<b>${esc(free[0].name)}</b> attend un adversaire : les autres équipes sont en duel.`:'Toutes les équipes sont en duel.'} Termine un duel pour libérer des équipes.</p></div>`;return h}
+  h+=`<p class="sub" style="margin:0 0 6px">1. Ton équipe :</p><div class="chips">${free.map(g=>chip(g,chal.me===g.id,`chal.me='${g.id}';chal.opp=null;render()`)).join('')}</div>`;
+  if(chal.me){
+    const met=s.met||{};
+    h+=`<p class="sub" style="margin:12px 0 6px">2. Contre quelle équipe ?</p><div class="chips">${free.filter(g=>g.id!==chal.me).map(g=>{const n=met[metKey(chal.me,g.id)]||0;return chip(g,chal.opp===g.id,`chal.opp='${g.id}';render()`,n?` <span class="pill">déjà ×${n}</span>`:'')}).join('')}</div>`;
+  }
+  h+=`<button class="btn orange big" style="margin-top:12px" ${chal.me&&chal.opp?'':'disabled'} onclick="createDuel()">⚔️ Créer le duel</button></div>`;
+  return h;
+}
+function createDuel(){
+  const a=chal.me,b=chal.opp;if(!a||!b)return;const id=uid();
+  const A=G(a),B=G(b);const auto=nearestLevel(clamp(Math.round((avgLevel(A.members)+avgLevel(B.members))/2),1,6));
+  chal={me:null,opp:null};
+  act('nouveau duel',()=>{const s=S.session;const busy=busyIds();if(busy.has(a)||busy.has(b)||!G(a)||!G(b))return;
+    s.duels.push({id,a,b,stars:auto,manche:0,state:'wait',score:{a:0,b:0},res:{},winner:null,t0:null});
+    s.met=s.met||{};const k=metKey(a,b);s.met[k]=(s.met[k]||0)+1});
+  if(!D(id))toast('Une des équipes vient de commencer un autre duel');
+}
+function endDuel(did){const d=D(did);if(!d)return;const A=G(d.a),B=G(d.b);
+  confirmBox(`Terminer le duel ${esc(A?.name)} – ${esc(B?.name)} ?<br><small class="sub">Score final ${d.score.a} – ${d.score.b}. Les deux équipes pourront choisir un nouvel adversaire.</small>`,()=>{
+  act('fin du duel',()=>{const s=S.session;const x=D(did);if(!x||x.state==='run')return;s.duels=s.duels.filter(y=>y.id!==did)})},'Terminer le duel',false)}
+function setPairing(p){needPin(()=>{act('appariement',()=>{S.session.pairing=p;if(p!=='libre'){S.session.groups.forEach(g=>g.cur=null);pairDuels()}else S.session.bye=null});chal={me:null,opp:null}})}
 function rDefi(){
-  const s=S.session;const fmt=s.size+' contre '+s.size;
-  const bye=s.bye&&G(s.bye);
-  $('#main').innerHTML=`<div class="toolbar"><h2>⚔️ Défis ${fmt} <span class="pill">Tour ${s.round}</span></h2>
+  const s=S.session;const fmt=s.size+' contre '+s.size;const libre=s.pairing==='libre';
+  const bye=!libre&&s.bye&&G(s.bye);
+  $('#main').innerHTML=`<div class="toolbar"><h2>⚔️ Défis ${fmt} ${libre?'<span class="pill">adversaires au choix</span>':`<span class="pill">Tour ${s.round}</span>`}</h2>
     ${s.room||!isProf()?'':`<button class="btn sm" onclick="undo()" ${undoStack.length?'':'disabled'}>↶ Annuler</button>`}
     <button class="btn sm" onclick="go('classement')">🏆</button>
     ${P(`<button class="btn sm" onclick="editLevels()">★ Niveaux</button>
-    <button class="btn sm" onclick="newRound()">🔀 Nouveaux duels</button>
+    ${libre?`<button class="btn sm" onclick="setPairing('niveau')">🔀 Duels automatiques</button>`:`<button class="btn sm" onclick="newRound()">🔀 Nouveaux duels</button><button class="btn sm" onclick="setPairing('libre')">🤝 Adversaires au choix</button>`}
     <button class="btn sm danger" onclick="endSession()">Terminer</button>`)}</div>
     ${syncBanner()}
     ${bye?`<div class="info">⏸ <b>${esc(bye.name)}</b> est exempté ce tour-ci (nombre d'équipes impair).</div>`:''}
+    ${libre?challengePanel():''}
     <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(340px,1fr))">${s.duels.map(duelCard).join('')}</div>`;
   tick();
 }
@@ -704,9 +738,10 @@ function duelCard(d,i){
     }
     return`<div class="side ${d.winner===k?'win':''}" style="--c:${g.color}"><b>${d.winner===k?'🏆 ':''}${esc(g.name)}</b>${g.members.length>1?`<span class="sub">${mem}</span>`:''}<span class="pts" style="font-size:15px">${g.pts} pts</span>${st}</div>`};
   let foot='';
-  if(d.state==='wait')foot=`<p class="sub" style="margin:10px 0 6px">Niveau de la manche ${d.manche+1} :</p><div class="starpick" style="grid-template-columns:repeat(6,1fr)">${[1,2,3,4,5,6].map(l=>`<button class="${d.stars===l?'on':''}" ${allowedLv().includes(l)?'':'disabled style="opacity:.25"'} style="font-size:13px;padding:8px 2px" onclick="setDuelStars('${d.id}',${l})">${l}★</button>`).join('')}</div><button class="btn orange big" style="margin-top:8px" onclick="launchDuel('${d.id}')">▶ Lancer la manche</button>`;
+  const endBtn=S.session.pairing==='libre'&&d.state==='wait'?`<button class="btn sm ghost" style="margin-top:6px" onclick="endDuel('${d.id}')">${d.manche?'🏁 Fin du duel':'✕ Annuler ce duel'}</button>`:'';
+  if(d.state==='wait')foot=`<p class="sub" style="margin:10px 0 6px">Niveau de la manche ${d.manche+1} :</p><div class="starpick" style="grid-template-columns:repeat(6,1fr)">${[1,2,3,4,5,6].map(l=>`<button class="${d.stars===l?'on':''}" ${allowedLv().includes(l)?'':'disabled style="opacity:.25"'} style="font-size:13px;padding:8px 2px" onclick="setDuelStars('${d.id}',${l})">${l}★</button>`).join('')}</div><button class="btn orange big" style="margin-top:8px" onclick="launchDuel('${d.id}')">▶ Lancer la manche</button>${endBtn}`;
   else if(d.state==='run')foot=`<div class="row" style="margin-top:8px"><span class="sub">${starsH(d.stars)} · <span class="timer" data-t0="${d.t0}"></span></span><span class="grow"></span>${P(`<button class="btn sm ghost" onclick="closeDuel('${d.id}')">Clore la manche</button>`)}</div>`;
-  else foot=`<div class="info" style="margin:8px 0">${d.winner?`🏆 <b>${esc((d.winner==='a'?A:B).name)}</b> remporte la manche !`:'Manche nulle : aucun code juste.'}</div><button class="btn big" onclick="nextManche('${d.id}')">➡ Manche suivante</button>`;
+  else foot=`<div class="info" style="margin:8px 0">${d.winner?`🏆 <b>${esc((d.winner==='a'?A:B).name)}</b> remporte la manche !`:'Manche nulle : aucun code juste.'}</div><div class="row"><button class="btn big grow" style="width:auto" onclick="nextManche('${d.id}')">➡ Manche suivante</button>${S.session.pairing==='libre'?`<button class="btn" onclick="endDuel('${d.id}')">🏁 Fin du duel</button>`:''}</div>`;
   return`<div class="duel"><div class="dhead"><b>Duel ${i+1}${d.manche?` · manche ${d.manche}`:''}</b><span class="score">${d.score.a} – ${d.score.b}</span></div>
    <div class="sides">${side(A,'a')}<div class="vs">VS</div>${side(B,'b')}</div>${foot}</div>`;
 }
