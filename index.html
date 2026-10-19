@@ -222,7 +222,11 @@ const stu=id=>{for(const c of S.classes){const s=c.students.find(x=>x.id===id);i
 const G=id=>S.session.groups.find(g=>g.id===id);
 const findCard=num=>S.cards.find(c=>String(c.carte)===String(num));
 const cardsOf=st=>S.cards; // chaque carte existe en 1 à 6 étoiles, mêmes réponses
-const levelsAvail=()=>[1,2,3,4,5,6].filter(l=>cardsOf(l).length);
+const levelsAvail=()=>S.cards.length?allowedLv():[];
+const allowedLv=()=>{const a=S.session&&S.session.allowed;return a&&a.length?[...a].sort((x,y)=>x-y):[1,2,3,4,5,6]};
+const clampAllowed=l=>{const a=allowedLv();return a.reduce((p,c)=>Math.abs(c-l)<Math.abs(p-l)?c:p,a[0])};
+const lvUp=l=>{const a=allowedLv();return a.find(x=>x>l)??a[a.length-1]};
+const lvDown=l=>{const a=allowedLv();return [...a].reverse().find(x=>x<l)??a[0]};
 function pushUndo(label){undoStack.push({label,data:JSON.stringify({session:S.session,classes:S.classes})});if(undoStack.length>20)undoStack.shift()}
 function undo(){
   const u=undoStack.pop();if(!u)return toast('Rien à annuler');
@@ -372,7 +376,7 @@ function rSeance(){
 
 function rSetup(){
   if(!S.classes.length){$('#main').innerHTML=`<div class="card empty"><h2>Aucune classe</h2><p>Crée une classe (ou importe tes listes Excel) pour former les équipes.</p><button class="btn primary" onclick="go('classes')">👥 Créer une classe</button></div>`;return}
-  if(!setup)setup={classId:(S.classes.find(c=>c.id===S.classId)||S.classes[0]).id,mode:'progression',size:2,compo:'heterogene',startLevel:1,pairing:'niveau',nGroups:0,groups:null,absent:{}};
+  if(!setup)setup={classId:(S.classes.find(c=>c.id===S.classId)||S.classes[0]).id,mode:'progression',size:2,compo:'heterogene',startLevel:1,pairing:'niveau',nGroups:0,groups:null,absent:{},allowed:[1,2,3,4,5,6]};
   const cls=S.classes.find(c=>c.id===setup.classId)||S.classes[0];setup.classId=cls.id;
   const seg=(key,obj)=>`<div class="seg">${Object.entries(obj).map(([k,[t,d]])=>`<button class="${String(setup[key])===k?'on':''}" onclick="setup.${key}=${isNaN(k)?`'${k}'`:k};setup.groups=null;rSetup()"><b>${t}</b><small>${d}</small></button>`).join('')}</div>`;
   const sizes=setup.mode==='defi'?{1:['1 contre 1','Solo'],2:['2 contre 2','Duos'],3:['3 contre 3','Trios']}:{1:['Solo','1 élève'],2:['Duo','2 élèves'],3:['Trio','3 élèves']};
@@ -383,7 +387,8 @@ function rSetup(){
   <div class="field"><label>Organisation</label>${seg('mode',MODES)}</div>
   <div class="field"><label>${setup.mode==='defi'?'Format du défi':'Travail en'}</label>${seg('size',sizes)}</div>
   ${setup.size>1?`<div class="field"><label>Composition des équipes</label>${seg('compo',COMPOS)}</div>`:''}
-  ${setup.mode==='progression'?`<div class="field"><label>Niveau de départ</label><div class="seg">${[1,2,3,4,5,6].map(l=>`<button class="${setup.startLevel===l?'on':''}" onclick="setup.startLevel=${l};rSetup()" style="flex:1 1 60px;text-align:center">${starsH(l)}</button>`).join('')}<button class="${setup.startLevel==='auto'?'on':''}" onclick="setup.startLevel='auto';rSetup()" style="flex:1 1 120px;text-align:center"><b>Auto</b><small>selon niveau élèves</small></button></div></div>`:''}
+  <div class="field"><label>Niveaux autorisés pour cette séance <span class="sub">(touche pour activer / désactiver)</span></label><div class="seg">${[1,2,3,4,5,6].map(l=>`<button class="${setup.allowed.includes(l)?'on':''}" onclick="toggleSetupLv(${l})" style="flex:1 1 60px;text-align:center">${starsH(l)}<small>${l}★</small></button>`).join('')}</div></div>
+  ${setup.mode==='progression'?`<div class="field"><label>Niveau de départ</label><div class="seg">${setup.allowed.map(l=>`<button class="${setup.startLevel===l?'on':''}" onclick="setup.startLevel=${l};rSetup()" style="flex:1 1 60px;text-align:center">${starsH(l)}</button>`).join('')}<button class="${setup.startLevel==='auto'?'on':''}" onclick="setup.startLevel='auto';rSetup()" style="flex:1 1 120px;text-align:center"><b>Auto</b><small>selon niveau élèves</small></button></div></div>`:''}
   ${setup.mode==='defi'?`<div class="field"><label>Appariement des duels</label>${seg('pairing',{niveau:['Niveau proche','Les équipes de même niveau s\'affrontent'],aleatoire:['Aléatoire','Adversaires tirés au sort']})}</div>`:''}
   <div class="field"><label>Nombre d'équipes <span class="sub">(vide = automatique)</span></label><input type="number" min="1" max="${present.length}" value="${setup.nGroups||''}" placeholder="auto" onchange="setup.nGroups=+this.value||0;setup.groups=null;rSetup()" style="max-width:140px"></div>
   <button class="btn primary big" onclick="makeGroups()" ${present.length?'':'disabled'}>🎲 Former les équipes</button></div>`;
@@ -413,6 +418,8 @@ function groupEditor(){
     ${m.map(id=>{const s=stu(id);return`<div class="mem"><span class="grow">${esc(s.name)} <span class="pill">${s.level||3}</span></span><select onchange="moveStu('${id}',${gi},+this.value)">${gl.map((_,j)=>`<option value="${j}" ${j===gi?'selected':''}>É${j+1}</option>`).join('')}</select></div>`}).join('')||'<div class="sub">vide</div>'}</div>`).join('')}</div>
   <button class="btn orange big" style="margin-top:14px" onclick="startSession()">▶ Commencer la séance</button></div>`;
 }
+function toggleSetupLv(l){const a=setup.allowed;if(a.includes(l)){if(a.length===1)return toast('Garde au moins un niveau');setup.allowed=a.filter(x=>x!==l)}else setup.allowed=[...a,l].sort((x,y)=>x-y);
+  if(setup.startLevel!=='auto'&&!setup.allowed.includes(setup.startLevel))setup.startLevel=setup.allowed[0];rSetup()}
 function moveStu(id,from,to){setup.groups[from]=setup.groups[from].filter(x=>x!==id);setup.groups[to].push(id);rSetup()}
 function avgLevel(ids){const l=ids.map(i=>stu(i)?.level||3);return l.length?l.reduce((a,b)=>a+b,0)/l.length:3}
 function gName(m,gi){return m.length===1&&setup.size===1?esc(stu(m[0]).name):'Équipe '+(gi+1)}
@@ -420,10 +427,11 @@ function startSession(){
   const gl=setup.groups.filter(m=>m.length);if(!gl.length)return toast('Aucune équipe');
   if(setup.mode==='defi'&&gl.length<2)return toast('Il faut au moins 2 équipes pour un défi');
   const lv=levelsAvail();
-  S.session={id:uid(),classId:setup.classId,mode:setup.mode,size:setup.size,pairing:setup.pairing,created:Date.now(),duels:[],round:0,
+  S.session={id:uid(),classId:setup.classId,mode:setup.mode,size:setup.size,pairing:setup.pairing,allowed:[...setup.allowed],created:Date.now(),duels:[],round:0,
     groups:gl.map((m,i)=>{
       let start=setup.startLevel==='auto'?Math.round(avgLevel(m)):setup.startLevel;
-      return{id:uid(),name:m.length===1&&setup.size===1?stu(m[0]).name:'Équipe '+(i+1),color:COLORS[i%COLORS.length],members:m,level:clamp(start,1,6),maxLevel:0,pts:0,cur:null,hist:[],done:[],byes:0,wins:0}})};
+      const al=[...setup.allowed].sort((x,y)=>x-y);start=al.reduce((p,c)=>Math.abs(c-start)<Math.abs(p-start)?c:p,al[0]);
+      return{id:uid(),name:m.length===1&&setup.size===1?stu(m[0]).name:'Équipe '+(i+1),color:COLORS[i%COLORS.length],members:m,level:start,maxLevel:0,pts:0,cur:null,hist:[],done:[],byes:0,wins:0}})};
   S.classId=setup.classId;setup=null;undoStack=[];
   if(S.session.mode==='defi')pairDuels();
   save();render();
@@ -436,8 +444,10 @@ function rDash(){
   let h=`<div class="toolbar"><h2>${m} <span class="pill">${s.size===1?'Solo':s.size===2?'Duo':'Trio'}</span></h2>
     <button class="btn sm" onclick="undo()" ${undoStack.length?'':'disabled'}>↶ Annuler</button>
     <button class="btn sm" onclick="go('classement')">🏆</button>
+    <button class="btn sm" onclick="editLevels()">★ Niveaux</button>
     <button class="btn sm" onclick="editTeams()">✏️ Équipes</button>
     <button class="btn sm danger" onclick="endSession()">Terminer</button></div>
+  ${allowedLv().length<6?`<div class="info">Niveaux autorisés : ${allowedLv().map(l=>starsH(l)).join(' · ')}</div>`:''}
   <div class="grid">${s.groups.map(gCard).join('')}</div>`;
   $('#main').innerHTML=h;tick();
 }
@@ -465,24 +475,45 @@ function pickCard(st,g){
 let assign=null;
 function newCard(gid){
   const g=G(gid);const mode=S.session.mode;
-  let st=mode==='progression'?g.level:null;
-  if(st&&!cardsOf(st).length){const lv=levelsAvail();st=lv.reduce((a,b)=>Math.abs(b-st)<Math.abs(a-st)?b:a,lv[0])}
-  assign={gid,st,card:st?pickCard(st,g):null};rAssign();
+  const st=mode==='progression'?clampAllowed(g.level):(allowedLv().length===1?allowedLv()[0]:null);
+  if(mode==='progression'&&st!==g.level){g.level=st;save()}
+  assign={gid,st,num:''};rAssign();
+}
+function cardCheck(num){
+  const g=G(assign.gid);num=String(num||'').trim();
+  if(!num)return{ok:false,msg:''};
+  const c=findCard(num);
+  if(!c)return{ok:false,msg:`❌ La carte n°${esc(num)} n'existe pas dans les codes.`};
+  if(g.done.map(String).includes(c.carte)&&!(g.cur&&String(g.cur.carte)===c.carte))return{ok:false,msg:`⚠️ Ton équipe a déjà fait la carte n°${esc(num)} (mêmes réponses à tous les niveaux). Choisis-en une autre.`};
+  const other=S.session.groups.find(x=>x.id!==g.id&&x.cur&&String(x.cur.carte)===c.carte);
+  return{ok:true,card:c,msg:other?`ℹ️ ${esc(other.name)} court déjà avec la carte n°${esc(num)}.`:`✅ Carte n°${esc(num)} trouvée.`};
 }
 function rAssign(){
-  const g=G(assign.gid);const lock=S.session.mode==='progression';
+  const g=G(assign.gid);const lock=S.session.mode==='progression';const al=allowedLv();
+  const chk=cardCheck(assign.num);
   openModal(`<h2>${esc(g.name)} — nouvelle carte</h2>
-  ${lock?`<p class="sub">Niveau imposé par la progression : ${starsH(assign.st)}</p>`:`<p class="sub">Choisis ton niveau :</p><div class="starpick">${[1,2,3,4,5,6].map(l=>`<button class="${assign.st===l?'on':''}" ${cardsOf(l).length?'':'disabled'} onclick="assign.st=${l};assign.card=pickCard(${l},G(assign.gid));rAssign()">${starsH(l)}<br><small class="sub">${l} pt${l>1?'s':''}</small></button>`).join('')}</div>`}
-  ${assign.card?`<p style="text-align:center;margin:16px 0 0" class="sub">Prends la carte n°</p><div class="bignum">${esc(assign.card.carte)}</div><p style="text-align:center;margin:0">${starsH(assign.st)}${assign.card.dep?` · départ <b>${esc(assign.card.dep)}</b>`:''}</p>
-  <div class="row" style="margin-top:12px"><span class="sub">Autre n° :</span><input type="text" id="othercard" style="max-width:100px" placeholder="n°"><button class="btn sm" onclick="setOtherCard()">OK</button><button class="btn sm" onclick="assign.card=pickCard(assign.st,G(assign.gid));rAssign()">🎲 Autre tirage</button></div>`:(assign.st?'<p class="warn">Aucune carte à ce niveau.</p>':'')}
-  <div class="row" style="justify-content:flex-end;margin-top:16px"><button class="btn" onclick="closeModal()">Annuler</button><button class="btn primary" ${assign.card?'':'disabled'} onclick="confirmAssign()">▶ C'est parti !</button></div>`);
+  <div class="field"><label>1. Numéro de ta carte</label>
+   <input type="text" id="cardnum" inputmode="numeric" autocomplete="off" value="${esc(assign.num)}" placeholder="ex : 67" style="font-size:28px;font-weight:800;text-align:center;max-width:180px"
+     oninput="assign.num=this.value;const c=cardCheck(this.value);$('#cardmsg').innerHTML=c.msg;$('#gobtn').disabled=!(c.ok&&assign.st)" onkeydown="if(event.key==='Enter'&&!$('#gobtn').disabled)confirmAssign()">
+   <div id="cardmsg" class="sub" style="margin-top:6px;min-height:20px">${chk.msg}</div>
+   <button class="btn sm ghost" style="padding-left:0" onclick="randomCard()">🎲 Tirer une carte au hasard</button></div>
+  <div class="field"><label>2. Nombre d'étoiles</label>
+  ${lock?`<p style="margin:0">Niveau imposé par la progression : ${starsH(assign.st)} <span class="sub">(${assign.st} pt${assign.st>1?'s':''})</span></p>`
+   :`<div class="starpick">${[1,2,3,4,5,6].map(l=>`<button class="${assign.st===l?'on':''}" ${al.includes(l)?'':'disabled style="opacity:.25"'} onclick="assign.st=${l};rAssign()">${starsH(l)}<br><small class="sub">${S.settings.ptsMode==='stars'?l+' pt'+(l>1?'s':''):'1 pt'}</small></button>`).join('')}</div>
+   ${al.length<6?`<p class="sub" style="margin:6px 0 0">Niveaux autorisés pour cette séance : ${al.map(l=>l+'★').join(', ')}</p>`:''}`}</div>
+  <div class="row" style="justify-content:flex-end;margin-top:16px"><button class="btn" onclick="closeModal()">Annuler</button><button class="btn primary" id="gobtn" ${chk.ok&&assign.st?'':'disabled'} onclick="confirmAssign()">▶ C'est parti !</button></div>`);
+  if(!assign.num)setTimeout(()=>{const i=$('#cardnum');if(i)i.focus()},60);
 }
-function setOtherCard(){const v=$('#othercard').value.trim();const c=findCard(v);if(!c)return toast(`Carte ${v} introuvable dans les codes`);assign.card=c;rAssign()}
-function confirmAssign(){const g=G(assign.gid);pushUndo('carte '+assign.card.carte);g.cur={carte:assign.card.carte,stars:assign.st,t0:Date.now()};save();closeModal();render()}
+function randomCard(){const c=pickCard(assign.st||1,G(assign.gid));if(!c)return toast('Aucune carte disponible');assign.num=c.carte;rAssign()}
+function confirmAssign(){
+  const chk=cardCheck(assign.num);if(!chk.ok)return toast('Vérifie le numéro de carte');
+  if(!assign.st||!allowedLv().includes(assign.st))return toast("Choisis un nombre d'étoiles autorisé");
+  const g=G(assign.gid);pushUndo('carte '+chk.card.carte);g.cur={carte:chk.card.carte,stars:assign.st,t0:Date.now()};save();closeModal();render();
+}
 function cardMenu(gid){
   const g=G(gid);
   openModal(`<h2>${esc(g.name)} — carte ${esc(g.cur.carte)}</h2><div style="display:grid;gap:8px">
-  <button class="btn" onclick="closeModal();assign={gid:'${gid}',st:${g.cur.stars},card:findCard('${esc(g.cur.carte)}')};rAssign()">🔁 Changer de carte</button>
+  <button class="btn" onclick="closeModal();assign={gid:'${gid}',st:${g.cur.stars},num:''};rAssign()">🔁 Changer de carte</button>
   <button class="btn" onclick="giveUp('${gid}')">🏳️ Abandon (compte comme échec)</button>
   <button class="btn danger" onclick="pushUndo('retrait carte');G('${gid}').cur=null;save();closeModal();render()">✕ Retirer la carte (sans pénalité)</button>
   <button class="btn ghost" onclick="closeModal()">Fermer</button></div>`);
@@ -532,11 +563,11 @@ function applyResult(g,ok,errs){
   award(g,pts);
   if(ok)g.maxLevel=Math.max(g.maxLevel||0,st);
   const before=g.level;
-  if(S.session.mode==='progression')g.level=ok?Math.min(6,g.level+1):Math.max(1,g.level-1);
+  if(S.session.mode==='progression')g.level=ok?lvUp(g.level):lvDown(g.level);
   g.hist.push({carte:c.carte,stars:st,ok,pts,time,ts:Date.now(),members:[...g.members]});
   g.cur=null;save();render();
   showResult(ok,errs,`${ok?`+${pts} point${pts>1?'s':''}`:'0 point'} · ${fmtT(time)}`,
-    S.session.mode==='progression'?(ok?(before<6?`Niveau suivant : ${starsH(g.level)}`:`Niveau max ${starsH(6)} conservé !`):(before>1?`Tu redescends : ${starsH(g.level)}`:`Tu restes au niveau ${starsH(1)}`)):'',g.name);
+    S.session.mode==='progression'?(ok?(g.level>before?`Niveau suivant : ${starsH(g.level)}`:`Niveau max ${starsH(g.level)} conservé !`):(g.level<before?`Tu redescends : ${starsH(g.level)}`:`Tu restes au niveau ${starsH(g.level)}`)):'',g.name);
 }
 function showResult(ok,errs,line,line2,name){
   let det='';
@@ -547,6 +578,12 @@ function showResult(ok,errs,line,line2,name){
   openModal(`<div class="result ${ok?'ok':'ko'}"><div class="ic">${ok?'🎉':'❌'}</div><h2>${ok?'Bravo !':'Code faux'}</h2><p class="sub">${esc(name)}</p><p style="font-size:20px;font-weight:800">${line}</p>${det}${line2?`<p>${line2}</p>`:''}
   <button class="btn primary big" onclick="closeModal()">OK</button></div>`);
 }
+function editLevels(){needPin(()=>{const a=allowedLv();
+  openModal(`<h2>★ Niveaux autorisés</h2><p class="sub">Les élèves ne pourront choisir que ces niveaux. En progression, les équipes montent et descendent uniquement parmi eux.</p>
+  <div class="seg">${[1,2,3,4,5,6].map(l=>`<button class="${a.includes(l)?'on':''}" style="flex:1 1 60px;text-align:center" onclick="toggleLiveLv(${l})">${starsH(l)}<small>${l}★</small></button>`).join('')}</div>
+  <div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn primary" onclick="closeModal();render()">Terminé</button></div>`)})}
+function toggleLiveLv(l){const s=S.session;let a=allowedLv();if(a.includes(l)){if(a.length===1)return toast('Garde au moins un niveau');a=a.filter(x=>x!==l)}else a=[...a,l].sort((x,y)=>x-y);
+  s.allowed=a;s.groups.forEach(g=>{g.level=clampAllowed(g.level)});s.duels.forEach(d=>{if(!a.includes(d.stars))d.stars=clampAllowed(d.stars)});save();editLevels()}
 function editTeams(){
   needPin(()=>{
     const s=S.session;const cls=curClass();
@@ -581,6 +618,7 @@ function rDefi(){
   $('#main').innerHTML=`<div class="toolbar"><h2>⚔️ Défis ${fmt} <span class="pill">Tour ${s.round}</span></h2>
     <button class="btn sm" onclick="undo()" ${undoStack.length?'':'disabled'}>↶ Annuler</button>
     <button class="btn sm" onclick="go('classement')">🏆</button>
+    <button class="btn sm" onclick="editLevels()">★ Niveaux</button>
     <button class="btn sm" onclick="newRound()">🔀 Nouveaux duels</button>
     <button class="btn sm danger" onclick="endSession()">Terminer</button></div>
     ${bye?`<div class="info">⏸ <b>${esc(bye.name)}</b> est exempté ce tour-ci (nombre d'équipes impair).</div>`:''}
@@ -599,7 +637,7 @@ function duelCard(d,i){
     }
     return`<div class="side ${d.winner===k?'win':''}" style="--c:${g.color}"><b>${d.winner===k?'🏆 ':''}${esc(g.name)}</b>${g.members.length>1?`<span class="sub">${mem}</span>`:''}<span class="pts" style="font-size:15px">${g.pts} pts</span>${st}</div>`};
   let foot='';
-  if(d.state==='wait')foot=`<p class="sub" style="margin:10px 0 6px">Niveau de la manche ${d.manche+1} :</p><div class="starpick" style="grid-template-columns:repeat(6,1fr)">${[1,2,3,4,5,6].map(l=>`<button class="${d.stars===l?'on':''}" ${cardsOf(l).length?'':'disabled'} style="font-size:13px;padding:8px 2px" onclick="S.session.duels[${i}].stars=${l};save();render()">${l}★</button>`).join('')}</div><button class="btn orange big" style="margin-top:8px" onclick="launchDuel(${i})">▶ Lancer la manche</button>`;
+  if(d.state==='wait')foot=`<p class="sub" style="margin:10px 0 6px">Niveau de la manche ${d.manche+1} :</p><div class="starpick" style="grid-template-columns:repeat(6,1fr)">${[1,2,3,4,5,6].map(l=>`<button class="${d.stars===l?'on':''}" ${allowedLv().includes(l)?'':'disabled style="opacity:.25"'} style="font-size:13px;padding:8px 2px" onclick="S.session.duels[${i}].stars=${l};save();render()">${l}★</button>`).join('')}</div><button class="btn orange big" style="margin-top:8px" onclick="launchDuel(${i})">▶ Lancer la manche</button>`;
   else if(d.state==='run')foot=`<div class="row" style="margin-top:8px"><span class="sub">${starsH(d.stars)} · <span class="timer" data-t0="${d.t0}"></span></span><span class="grow"></span><button class="btn sm ghost" onclick="closeDuel(${i})">Clore la manche</button></div>`;
   else foot=`<div class="info" style="margin:8px 0">${d.winner?`🏆 <b>${esc((d.winner==='a'?A:B).name)}</b> remporte la manche !`:'Manche nulle : aucun code juste.'}</div><button class="btn big" onclick="nextManche(${i})">➡ Manche suivante</button>`;
   return`<div class="duel"><div class="dhead"><b>Duel ${i+1}${d.manche?` · manche ${d.manche}`:''}</b><span class="score">${d.score.a} – ${d.score.b}</span></div>
