@@ -97,6 +97,11 @@ tr.p1 .rank{color:var(--gold)} tr.p2 .rank{color:#8a9aa6} tr.p3 .rank{color:#b87
 .starpick button{border:2px solid var(--line);background:#fff;border-radius:12px;padding:12px 4px;cursor:pointer;font-size:18px}
 .starpick button.on{border-color:var(--orange);background:#fff6ec}
 .bignum{font-size:56px;font-weight:900;text-align:center;color:var(--green);line-height:1.1}
+#alertbar{position:fixed;left:10px;right:10px;bottom:12px;display:none;align-items:center;gap:10px;background:var(--red);color:#fff;border-radius:14px;padding:10px 12px;z-index:45;box-shadow:0 8px 24px rgba(0,0,0,.3);max-width:900px;margin:0 auto}
+#alertbar .sub{color:#ffe0e0}
+#alertbar .btn{color:var(--ink)}
+main{padding-bottom:90px}
+#alertbar .st{color:#ffe08a}
 #toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(120px);background:#1d2a22;color:#fff;padding:12px 18px;border-radius:12px;transition:.25s;z-index:60;max-width:90vw}
 #toast.on{transform:translateX(-50%) translateY(0)}
 .duel{background:#fff;border:1px solid var(--line);border-radius:var(--r);padding:12px}
@@ -235,18 +240,18 @@ function rRole(){
 }
 
 /* ============ navigation ============ */
-const TABS=[['seance','🏃 Séance'],['classement','🏆 Classement'],['classes','👥 Classes'],['codes','🔑 Codes'],['reglages','⚙️ Réglages']];
-const PROT=['classes','codes','reglages'];
+const TABS=[['seance','🏃 Séance'],['classement','🏆 Classement'],['alertes','🔔 Alertes'],['classes','👥 Classes'],['codes','🔑 Codes'],['reglages','⚙️ Réglages']];
+const PROT=['alertes','classes','codes','reglages'];
 function go(t){if(PROT.includes(t))needPin(()=>{tab=t;render()});else{tab=t;render()}}
 const visibleTabs=()=>TABS.filter(([k])=>isProf()||!PROT.includes(k));
 function renderHead(){
   if(!mode)return;
-  $('#nav').innerHTML=visibleTabs().map(([k,l])=>`<button class="${tab===k?'on':''}" onclick="go('${k}')">${l}</button>`).join('');
+  $('#nav').innerHTML=visibleTabs().map(([k,l])=>`<button class="${tab===k?'on':''}" data-k="${k}" onclick="go('${k}')">${l}</button>`).join('');updateAlertTab();
   const lb=$('#lockbtn');
   lb.style.display='';lb.textContent=isProf()?'👨‍🏫 Prof · changer':'🧭 Élève · changer';
   const c=curClass();$('#htitle').innerHTML=esc("Course d'orientation"+(S.session&&c?' · '+c.name:(S.session&&S.session.className?' · '+S.session.className:'')))+(isOnline()?' <small style="font-weight:600;opacity:.85">📡 '+esc(S.session.room)+'</small>'+syncDot():'');
 }
-function render(){if(!mode)return rRole();if(!isProf()&&PROT.includes(tab))tab='seance';renderHead();({seance:rSeance,classement:rClassement,classes:rClasses,codes:rCodes,reglages:rReglages})[tab]();}
+function render(){if(!mode){renderAlertBar();return rRole()}if(!isProf()&&PROT.includes(tab))tab='seance';renderHead();({seance:rSeance,classement:rClassement,alertes:rAlertes,classes:rClasses,codes:rCodes,reglages:rReglages})[tab]();checkAlerts();renderAlertBar();}
 
 /* ============ données ============ */
 const curClass=()=>S.classes.find(c=>c.id===(S.session?S.session.classId:S.classId))||null;
@@ -474,6 +479,7 @@ async function startSession(){
       const al=[...setup.allowed].sort((x,y)=>x-y);start=al.reduce((p,c)=>Math.abs(c-start)<Math.abs(p-start)?c:p,al[0]);
       return{id:uid(),name:m.length===1&&setup.size===1?stu(m[0]).name:'Équipe '+(i+1),color:COLORS[i%COLORS.length],members:m,level:start,maxLevel:0,pts:0,cur:null,hist:[],done:[],byes:0,wins:0}})};
   S.classId=setup.classId;undoStack=[];
+  if(S.alertLog){const ks=Object.keys(S.alertLog);if(ks.length>20)ks.slice(0,ks.length-20).forEach(k=>delete S.alertLog[k])}
   if(S.session.mode==='defi')pairDuels();
   chal={me:null,opp:null};
   if(online){
@@ -641,7 +647,7 @@ function resultMut(gid,t0,ok,time,now,fin){
   if(ok)g.maxLevel=Math.max(g.maxLevel||0,st);
   const before=g.level;
   if(S.session.mode==='progression'&&!late)g.level=ok?lvUp(g.level):lvDown(g.level);
-  g.hist.push({carte:c.carte,stars:st,ok,pts,time,ts:now,members:[...g.members],late:!!(c.lim&&time>c.lim)});
+  g.hist.push({carte:c.carte,stars:st,ok,pts,time,ts:now,members:[...g.members],late:!!(c.lim&&time>c.lim),lvb:before,lva:g.level});
   g.cur=null;
   return{pts,before,level:g.level,name:g.name,half:ok&&c.fails?c.fails:0};
 }
@@ -1123,6 +1129,104 @@ function tick(){document.querySelectorAll('.timer[data-t0]').forEach(e=>{
   if(r>=0){e.textContent='⏳ '+fmtT(r);e.classList.toggle('low',r<60000);e.classList.remove('over')}
   else{e.textContent='⏰ dépassé +'+fmtT(-r);e.classList.remove('low');e.classList.add('over')}
 })}
+/* ============ ALERTES (prof) ============ */
+function defAlerts(){return{long:{on:true,min:8},fails:{on:true,n:2,of:3},idle:{on:true,min:5},low:{on:true},sound:true,vibrate:true,notif:false,wake:true}}
+function AL(){S.settings.alerts=Object.assign(defAlerts(),S.settings.alerts||{});return S.settings.alerts}
+function alertStore(){const s=S.session;if(!s)return null;S.alertLog=S.alertLog||{};if(!S.alertLog[s.id])S.alertLog[s.id]={since:Date.now(),items:{}};return S.alertLog[s.id]}
+const unreadAlerts=()=>{const st=S.session&&S.alertLog&&S.alertLog[S.session.id];return st?Object.values(st.items).filter(a=>a.status==='new').length:0};
+const gLabel=g=>esc(g.name)+(g.members.length>1||g.name!==(stu(g.members[0])?.name)?` <span class="sub">(${g.members.map(id=>esc(stu(id)?.name||'?')).join(', ')})</span>`:'');
+function checkAlerts(){
+  if(!isProf()||!S.session)return;
+  const s=S.session,A=AL(),st=alertStore(),now=Date.now(),fresh=[];
+  const add=(key,type,g,msg)=>{if(st.items[key])return;const a={key,type,gid:g.id,msg,ts:now,status:'new'};st.items[key]=a;fresh.push(a)};
+  const minLv=allowedLv()[0];
+  s.groups.forEach(g=>{
+    if(!g.members.length)return;
+    const c=g.cur;
+    if(A.long.on&&c&&now-c.t0>A.long.min*60000)add(`long|${g.id}|${c.t0}`,'long',g,`carte ${esc(c.carte)} ${starsH(c.stars)} en cours depuis plus de ${A.long.min} min`);
+    const H=g.hist||[];
+    if(A.fails.on&&H.length){
+      const last=H.slice(-A.fails.of),nf=last.filter(h=>!h.ok).length,lh=H[H.length-1];
+      if(!lh.ok&&nf>=A.fails.n&&lh.ts>st.since)add(`fails|${g.id}|${H.length}`,'fails',g,`${nf} échecs sur les ${last.length} dernières cartes`);
+    }
+    if(A.idle.on&&s.mode!=='defi'&&!c){
+      const lastAct=Math.max(s.created||0,st.since,...H.map(h=>h.ts||0));
+      if(now-lastAct>A.idle.min*60000)add(`idle|${g.id}|${lastAct}`,'idle',g,`aucune carte depuis plus de ${A.idle.min} min`);
+    }
+    if(A.low.on&&s.mode==='progression')H.forEach((h,i)=>{
+      if(!h.ok&&h.lvb!=null&&h.lvb>minLv&&h.lva===minLv&&h.ts>st.since)add(`low|${g.id}|${i+1}`,'low',g,`redescendue au niveau le plus bas (${starsH(minLv)})`);
+    });
+  });
+  if(fresh.length){save();notifyAlerts(fresh)}
+  renderAlertBar();
+}
+const ALICON={long:'⏱',fails:'❌',idle:'💤',low:'⬇️'};
+function renderAlertBar(){
+  let bar=$('#alertbar');
+  if(!bar){bar=document.createElement('div');bar.id='alertbar';document.body.appendChild(bar)}
+  const st=S.session&&S.alertLog&&S.alertLog[S.session.id];
+  const news=st&&isProf()?Object.values(st.items).filter(a=>a.status==='new').sort((a,b)=>b.ts-a.ts):[];
+  if(!news.length){bar.style.display='none';bar.innerHTML='';updateAlertTab();return}
+  const a=news[0];const g=G(a.gid);
+  bar.style.display='flex';
+  bar.innerHTML=`<span style="font-size:22px">⚠️</span><span class="grow" onclick="go('alertes')" style="cursor:pointer"><b>${g?gLabel(g):'Équipe'}</b> : ${a.msg}${news.length>1?` <span class="pill" style="background:#fff;color:var(--red)">+${news.length-1}</span>`:''}</span><button class="btn sm" onclick="setAlert('${a.key}','seen')">Vu</button>`;
+  updateAlertTab();
+}
+function updateAlertTab(){const b=document.querySelector('#nav button[data-k="alertes"]');if(b){const n=unreadAlerts();b.innerHTML='🔔 Alertes'+(n?` <span class="pill" style="background:var(--red);color:#fff">${n}</span>`:'')}}
+function setAlert(key,status){const st=alertStore();if(st&&st.items[key]){st.items[key].status=status;save()}renderAlertBar();if(tab==='alertes')rAlertes()}
+function allSeen(){const st=alertStore();if(!st)return;Object.values(st.items).forEach(a=>{if(a.status==='new')a.status='seen'});save();renderAlertBar();rAlertes()}
+let audioCtx=null;
+function unlockAudio(){try{if(!audioCtx)audioCtx=new (window.AudioContext||window.webkitAudioContext)();if(audioCtx.state==='suspended')audioCtx.resume()}catch(e){}}
+document.addEventListener('pointerdown',unlockAudio,{passive:true});
+function beep(){try{unlockAudio();const t=audioCtx.currentTime;[0,0.25,0.5].forEach((d,i)=>{const o=audioCtx.createOscillator(),gn=audioCtx.createGain();o.type='square';o.frequency.value=i===2?1175:880;gn.gain.setValueAtTime(0.0001,t+d);gn.gain.exponentialRampToValueAtTime(0.25,t+d+0.02);gn.gain.exponentialRampToValueAtTime(0.0001,t+d+0.2);o.connect(gn).connect(audioCtx.destination);o.start(t+d);o.stop(t+d+0.22)})}catch(e){}}
+function notifyAlerts(list){
+  const A=AL();
+  if(A.sound)beep();
+  if(A.vibrate&&navigator.vibrate)try{navigator.vibrate([300,150,300])}catch(e){}
+  if(A.notif&&'Notification' in window&&Notification.permission==='granted'){
+    list.forEach(a=>{const g=G(a.gid);const body=(g?g.name:'Équipe')+' : '+a.msg.replace(/<[^>]+>/g,'').replace(/★/g,'*');
+      const opt={body,tag:a.key,icon:'icon-192.png',renotify:true};
+      if(navigator.serviceWorker&&navigator.serviceWorker.controller)navigator.serviceWorker.ready.then(r=>r.showNotification('⚠️ Course d\'orientation',opt)).catch(()=>{});
+      else try{new Notification('⚠️ Course d\'orientation',opt)}catch(e){}});
+  }
+}
+async function askNotif(){
+  if(!('Notification' in window))return toast('Notifications non disponibles sur cet appareil');
+  const p=await Notification.requestPermission();AL().notif=p==='granted';save();rAlertes();
+  toast(p==='granted'?'Notifications activées':'Notifications refusées par l\'appareil');
+}
+let wakeLock=null;
+async function keepAwake(){
+  try{const want=isProf()&&S.session&&AL().wake&&'wakeLock' in navigator;
+    if(want&&!wakeLock&&document.visibilityState==='visible'){wakeLock=await navigator.wakeLock.request('screen');wakeLock.addEventListener('release',()=>{wakeLock=null})}
+    if(!want&&wakeLock){wakeLock.release();wakeLock=null}}catch(e){}
+}
+document.addEventListener('visibilitychange',()=>{if(!document.hidden){keepAwake();checkAlerts()}});
+setInterval(()=>{checkAlerts();keepAwake()},3000);
+function rAlertes(){
+  const A=AL();const tg=(path,on)=>`<button class="chip" style="${on?'background:var(--green);color:#fff;border-color:var(--green)':''}" onclick="${path}=!${path};save();rAlertes()">${on?'✓ Activée':'Désactivée'}</button>`;
+  const num=(path,v,w=70)=>`<input type="number" min="1" value="${v}" style="width:${w}px;text-align:center" onchange="${path}=Math.max(1,+this.value||${v});save();rAlertes()">`;
+  const st=S.session?alertStore():null;
+  const items=st?Object.values(st.items).sort((a,b)=>((b.status==='new')-(a.status==='new'))||b.ts-a.ts):[];
+  const hhmm=t=>new Date(t).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'});
+  $('#main').innerHTML=`<div class="toolbar"><h2>🔔 Alertes</h2>${items.some(a=>a.status==='new')?'<button class="btn sm" onclick="allSeen()">Tout marquer vu</button>':''}</div>
+  <div class="card"><h3 style="margin-top:0">Alertes de la séance ${S.session?'':'<span class="sub">(aucune séance en cours)</span>'}</h3>
+  ${items.length?`<table>${items.map(a=>{const g=S.session&&G(a.gid);return`<tr style="${a.status==='new'?'background:#fdeaea':a.status==='done'?'opacity:.5':''}"><td style="width:46px">${hhmm(a.ts)}</td><td style="width:30px;font-size:20px">${ALICON[a.type]||'⚠️'}</td><td><b>${g?gLabel(g):'Équipe'}</b><br>${a.msg}</td><td style="white-space:nowrap;text-align:right">${a.status==='new'?`<button class="btn sm" onclick="setAlert('${a.key}','seen')">Vu</button> `:''}${a.status!=='done'?`<button class="btn sm" onclick="setAlert('${a.key}','done')">✓ Traité</button>`:'<span class="sub">traité</span>'}</td></tr>`}).join('')}</table>`:'<p class="sub" style="margin:0">Aucune alerte pour l\'instant 👍</p>'}</div>
+  <div class="card"><h3 style="margin-top:0">Quand m'alerter ?</h3>
+   <div class="field"><label>⏱ Carte trop longue ${tg('S.settings.alerts.long.on',A.long.on)}</label><div class="row">Une carte est en cours depuis plus de ${num('S.settings.alerts.long.min',A.long.min)} minutes</div></div>
+   <div class="field"><label>❌ Échecs répétés ${tg('S.settings.alerts.fails.on',A.fails.on)}</label><div class="row">${num('S.settings.alerts.fails.n',A.fails.n,60)} échecs sur les ${num('S.settings.alerts.fails.of',A.fails.of,60)} dernières cartes <span class="sub">(code faux, temps dépassé ou abandon)</span></div></div>
+   <div class="field"><label>💤 Équipe inactive ${tg('S.settings.alerts.idle.on',A.idle.on)}</label><div class="row">Aucune carte prise depuis plus de ${num('S.settings.alerts.idle.min',A.idle.min)} minutes <span class="sub">(hors défis)</span></div></div>
+   <div class="field"><label>⬇️ Niveau le plus bas ${tg('S.settings.alerts.low.on',A.low.on)}</label><div class="row sub">L'équipe redescend au niveau le plus bas autorisé (mode progression)</div></div>
+  </div>
+  <div class="card"><h3 style="margin-top:0">Comment m'alerter ?</h3>
+   <div class="row" style="margin-bottom:10px">🔊 Son ${tg('S.settings.alerts.sound',A.sound)} <button class="btn sm" onclick="beep()">Tester</button></div>
+   <div class="row" style="margin-bottom:10px">📳 Vibration ${tg('S.settings.alerts.vibrate',A.vibrate)} <span class="sub">(Android uniquement)</span></div>
+   <div class="row" style="margin-bottom:10px">🔆 Garder l'écran allumé pendant la séance ${tg('S.settings.alerts.wake',A.wake)}</div>
+   <div class="row">🔔 Notification du téléphone ${A.notif&&'Notification' in window&&Notification.permission==='granted'?tg('S.settings.alerts.notif',true):'<button class="btn sm" onclick="askNotif()">Activer</button>'} <span class="sub">(appli ouverte ou en arrière-plan ; pas garanti écran verrouillé)</span></div>
+   <p class="sub" style="margin:12px 0 0">Les alertes s'affichent uniquement en mode prof. Astuce : ouvre l'appli sur ton téléphone, passe en prof et rejoins la séance avec son code pour recevoir les alertes en te déplaçant.</p>
+  </div>`;
+}
+
 setInterval(tick,1000);
 if(S.session&&S.session.room&&canSync()){startSync(S.session.room);poll()}
 render();
