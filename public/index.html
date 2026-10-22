@@ -102,6 +102,14 @@ tr.p1 .rank{color:var(--gold)} tr.p2 .rank{color:#8a9aa6} tr.p3 .rank{color:#b87
 #alertbar .btn{color:var(--ink)}
 main{padding-bottom:90px}
 #alertbar .st{color:#ffe08a}
+.bchip{display:inline-block;background:#fff6dc;border:1px solid #f3d27a;border-radius:99px;padding:3px 9px;font-size:13px;font-weight:700;margin:2px}
+.bgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:8px}
+.bcard{border:2px dashed var(--line);border-radius:12px;padding:10px;text-align:center;display:flex;flex-direction:column;gap:4px;align-items:center;opacity:.55;filter:grayscale(1)}
+.bcard.on{opacity:1;filter:none;border:2px solid var(--gold);background:#fffaf0}
+.bcard .bic{font-size:34px;line-height:1}
+.bcard small{color:var(--mute);font-size:12px}
+.newbadge{background:#fffaf0;border:2px solid var(--gold);border-radius:14px;padding:10px;margin:10px 0;animation:pop .5s ease}
+@keyframes pop{0%{transform:scale(.6);opacity:0}70%{transform:scale(1.08)}100%{transform:scale(1);opacity:1}}
 #toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%) translateY(120px);background:#1d2a22;color:#fff;padding:12px 18px;border-radius:12px;transition:.25s;z-index:60;max-width:90vw}
 #toast.on{transform:translateX(-50%) translateY(0)}
 .duel{background:#fff;border:1px solid var(--line);border-radius:var(--r);padding:12px}
@@ -192,6 +200,7 @@ if(S.session)S.session.groups.forEach(g=>g.done=[...new Set((g.done||[]).map(k=>
 function sessPtsOf(sess){const m={};(sess.groups||[]).forEach(g=>(g.hist||[]).forEach(h=>(h.members||[]).forEach(id=>{m[id]=(m[id]||0)+(h.pts||0)})));return m}
 function recordSession(){
   const sess=S.session;if(!sess||!sess.v2)return;
+  try{archiveSession(sess)}catch(e){console.warn(e)}
   if(!S.classes.some(c=>c.id===sess.classId))return;
   S.sessPts=S.sessPts||{};
   S.sessPts[sess.id]={classId:sess.classId,date:sess.created,pts:sessPtsOf(sess)};
@@ -240,7 +249,7 @@ function rRole(){
 }
 
 /* ============ navigation ============ */
-const TABS=[['seance','🏃 Séance'],['classement','🏆 Classement'],['alertes','🔔 Alertes'],['classes','👥 Classes'],['codes','🔑 Codes'],['reglages','⚙️ Réglages']];
+const TABS=[['seance','🏃 Séance'],['classement','🏆 Classement'],['badges','🏅 Badges'],['alertes','🔔 Alertes'],['classes','👥 Classes'],['codes','🔑 Codes'],['reglages','⚙️ Réglages']];
 const PROT=['alertes','classes','codes','reglages'];
 function go(t){if(PROT.includes(t))needPin(()=>{tab=t;render()});else{tab=t;render()}}
 const visibleTabs=()=>TABS.filter(([k])=>isProf()||!PROT.includes(k));
@@ -251,7 +260,7 @@ function renderHead(){
   lb.style.display='';lb.textContent=isProf()?'👨‍🏫 Prof · changer':'🧭 Élève · changer';
   const c=curClass();$('#htitle').innerHTML=esc("Course d'orientation"+(S.session&&c?' · '+c.name:(S.session&&S.session.className?' · '+S.session.className:'')))+(isOnline()?' <small style="font-weight:600;opacity:.85">📡 '+esc(S.session.room)+'</small>'+syncDot():'');
 }
-function render(){if(!mode){renderAlertBar();return rRole()}if(!isProf()&&PROT.includes(tab))tab='seance';renderHead();({seance:rSeance,classement:rClassement,alertes:rAlertes,classes:rClasses,codes:rCodes,reglages:rReglages})[tab]();checkAlerts();renderAlertBar();}
+function render(){if(!mode){renderAlertBar();return rRole()}if(!isProf()&&PROT.includes(tab))tab='seance';renderHead();({seance:rSeance,classement:rClassement,alertes:rAlertes,badges:rBadges,classes:rClasses,codes:rCodes,reglages:rReglages})[tab]();checkAlerts();renderAlertBar();}
 
 /* ============ données ============ */
 const curClass=()=>S.classes.find(c=>c.id===(S.session?S.session.classId:S.classId))||null;
@@ -480,6 +489,7 @@ async function startSession(){
       return{id:uid(),name:m.length===1&&setup.size===1?stu(m[0]).name:'Équipe '+(i+1),color:COLORS[i%COLORS.length],members:m,level:start,maxLevel:0,pts:0,cur:null,hist:[],done:[],byes:0,wins:0}})};
   S.classId=setup.classId;undoStack=[];
   if(S.alertLog){const ks=Object.keys(S.alertLog);if(ks.length>20)ks.slice(0,ks.length-20).forEach(k=>delete S.alertLog[k])}
+  try{S.session.badgeCfg=clone(badgeCfg());S.session.prior={};Object.keys(roster).forEach(id=>{S.session.prior[id]=priorFromArchive(id,S.session.id)})}catch(e){console.warn(e)}
   if(S.session.mode==='defi')pairDuels();
   chal={me:null,opp:null};
   if(online){
@@ -624,9 +634,11 @@ function applyResult(gid,ok,errs){
   const t0=g0.cur.t0,now=Date.now(),time=now-t0;
   if(g0.cur.lim&&time>g0.cur.lim&&ok!==null){ok=false;errs=['time']}
   const fin=errs.includes('abandon')||errs.includes('time');
+  const mem=[...g0.members];let snap=null;try{snap=badgeSnap(mem)}catch(e){}
   const info=act('validation '+g0.name,()=>resultMut(gid,t0,ok,time,now,fin));
   if(!info)return;
   if(info.retry)return showRetry(errs,info);
+  setTimeout(()=>{try{if(snap)showNewBadges(newBadges(snap,mem))}catch(e){console.warn(e)}},0);
   if(info.duel)showResult(ok,errs,`${info.pts?'+'+info.pts+' points':'0 point'} · ${fmtT(time)}`,info.msg,info.name);
   else showResult(ok,errs,`${ok?`+${fmtP(info.pts)} point${info.pts>1?'s':''}${info.half?' (½ : réussi au '+(info.half+1)+'e essai)':''}`:'0 point'} · ${fmtT(time)}`,
     S.session&&S.session.mode==='progression'?(ok?(info.level>info.before?`Niveau suivant : ${starsH(info.level)}`:`Niveau max ${starsH(info.level)} conservé !`):(info.level<info.before?`Tu redescends : ${starsH(info.level)}`:`Tu restes au niveau ${starsH(info.level)}`)):'',info.name);
@@ -647,7 +659,7 @@ function resultMut(gid,t0,ok,time,now,fin){
   if(ok)g.maxLevel=Math.max(g.maxLevel||0,st);
   const before=g.level;
   if(S.session.mode==='progression'&&!late)g.level=ok?lvUp(g.level):lvDown(g.level);
-  g.hist.push({carte:c.carte,stars:st,ok,pts,time,ts:now,members:[...g.members],late:!!(c.lim&&time>c.lim),lvb:before,lva:g.level});
+  g.hist.push({carte:c.carte,stars:st,ok,pts,time,ts:now,members:[...g.members],late:!!(c.lim&&time>c.lim),lvb:before,lva:g.level,tries:(c.fails||0)+1,lim:!!c.lim});
   g.cur=null;
   return{pts,before,level:g.level,name:g.name,half:ok&&c.fails?c.fails:0};
 }
@@ -694,8 +706,8 @@ function editTeams(){
 }
 function renameGroup(gid,name){act('nom équipe',()=>{const g=G(gid);if(g)g.name=name})}
 function moveLive(id,from,to){if(!to)return;
-  const sObj=stu(id);
-  act('équipes',()=>{const s=S.session;if(sObj&&!s.roster)s.roster={};if(sObj&&!s.roster[id])s.roster[id]={name:sObj.name,level:sObj.level||3};
+  const sObj=stu(id);let pr=null;try{if(S.session.prior&&!S.session.prior[id]&&sObj)pr=priorFromArchive(id,S.session.id)}catch(e){}
+  act('équipes',()=>{const s=S.session;if(sObj&&!s.roster)s.roster={};if(sObj&&!s.roster[id])s.roster[id]={name:sObj.name,level:sObj.level||3};if(pr&&s.prior&&!s.prior[id])s.prior[id]=pr;
     s.groups.forEach(g=>{g.members=g.members.filter(x=>x!==id)});if(to!=='__out'){const g=G(to);if(g)g.members.push(id)}});editTeams()}
 function addLiveGroup(){const nid=uid();act('nouvelle équipe',()=>{const s=S.session;const i=s.groups.length;s.groups.push({id:nid,name:'Équipe '+(i+1),color:COLORS[i%COLORS.length],members:[],level:clampAllowed(1),maxLevel:0,pts:0,cur:null,hist:[],done:[],byes:0,wins:0})});editTeams()}
 
@@ -809,8 +821,9 @@ function duelMut(g,ok,time,now){
       d.winner=k;d.score[k]++;g.wins=(g.wins||0)+1;pts=st+bonus;win=true;msg='🏆 Code juste le plus rapide : manche gagnée !';
     }else{pts=lose;msg="Code juste, mais l'adversaire a été plus rapide."}
   }else msg='Code faux.';
+  const og=G(other==='a'?d.a:d.b);const om=!!(win&&og&&og.pts>g.pts);
   award(g,pts);
-  g.hist.push({carte:c.carte,stars:st,ok,pts,time,ts:now,members:[...g.members],duel:true,duelId:d.id,win});
+  g.hist.push({carte:c.carte,stars:st,ok,pts,time,ts:now,members:[...g.members],duel:true,duelId:d.id,win,om,tries:(c.fails||0)+1,lim:!!c.lim});
   g.cur=null;
   if(d.res[other]||(d.winner&&!S.settings.defiLosePts))finishDuel(d);
   return{duel:true,pts,msg,name:g.name};
@@ -1226,6 +1239,155 @@ function rAlertes(){
    <p class="sub" style="margin:12px 0 0">Les alertes s'affichent uniquement en mode prof. Astuce : ouvre l'appli sur ton téléphone, passe en prof et rejoins la séance avec son code pour recevoir les alertes en te déplaçant.</p>
   </div>`;
 }
+
+/* ============ BADGES ============ */
+const BADGES=[
+ {id:'premier',fam:'🧭 Persévérance',ic:'👣',name:'Premier pas',desc:p=>'Réussir sa 1re carte'},
+ {id:'perseverant',fam:'🧭 Persévérance',ic:'💪',name:'Persévérant',desc:p=>'Réussir une carte au 2e essai ou plus'},
+ {id:'revenant',fam:'🧭 Persévérance',ic:'🔄',name:'Revenant',desc:p=>`Réussir juste après ${p.n} échecs`,p:{n:2},pl:{n:'échecs'}},
+ {id:'marathon',fam:'🧭 Persévérance',ic:'🏃',name:'Marathonien',desc:p=>`Tenter ${p.t.join(' / ')} cartes au total`,p:{t:[10,25,50]},tiers:true},
+ {id:'fidele',fam:'🧭 Persévérance',ic:'📅',name:'Fidèle',desc:p=>`Participer à ${p.t.join(' / ')} séances`,p:{t:[3,5,10]},tiers:true},
+ {id:'progres',fam:'📈 Progrès',ic:'📈',name:'En progrès',desc:p=>'Réussir une carte plus difficile que son meilleur niveau de la séance précédente'},
+ {id:'ascension',fam:'📈 Progrès',ic:'🧗',name:'Ascension',desc:p=>`Monter ${p.n} niveaux d'affilée (progression)`,p:{n:3},pl:{n:'niveaux'}},
+ {id:'palier',fam:'📈 Progrès',ic:'⭐',name:'Nouveau palier',desc:p=>`Première réussite en ${p.t.map(x=>x+'★').join(' / ')}`,p:{t:[3,4,5,6]},tiers:true},
+ {id:'record',fam:'📈 Progrès',ic:'🏅',name:'Record perso',desc:p=>'Battre son record de points sur une séance'},
+ {id:'sansfaute',fam:'🎯 Précision',ic:'🎯',name:'Sans faute',desc:p=>`${p.t.join(' / ')} cartes d'affilée réussies du premier coup`,p:{t:[3,5]},tiers:true},
+ {id:'lynx',fam:'🎯 Précision',ic:'🐆',name:'Œil de lynx',desc:p=>`${p.n} cartes réussies du premier coup au total`,p:{n:10},pl:{n:'cartes'}},
+ {id:'parfaite',fam:'🎯 Précision',ic:'💎',name:'Séance parfaite',desc:p=>`${p.n} cartes réussies sans aucun échec dans la séance`,p:{n:4},pl:{n:'cartes'}},
+ {id:'eclair',fam:'⏱ Vitesse',ic:'⚡',name:'Éclair',desc:p=>`Réussir une carte en moins de ${fmtP(p.m)} min par étoile (ex. ★★ < ${fmtP(p.m*2)} min)`,p:{m:1.5},pl:{m:'min / ★'}},
+ {id:'chrono',fam:'⏱ Vitesse',ic:'⏱',name:'Chrono maîtrisé',desc:p=>`${p.n} cartes réussies dans le temps limite`,p:{n:5},pl:{n:'cartes'}},
+ {id:'duelliste',fam:'⚔️ Défis',ic:'⚔️',name:'Duelliste',desc:p=>'Gagner sa première manche en duel'},
+ {id:'invaincu',fam:'⚔️ Défis',ic:'🛡',name:'Invaincu',desc:p=>`Gagner ${p.n} manches de duel d'affilée`,p:{n:3},pl:{n:'manches'}},
+ {id:'tombeur',fam:'⚔️ Défis',ic:'🗡',name:'Tombeur',desc:p=>'Gagner une manche contre une équipe qui avait plus de points'},
+ {id:'explorateur',fam:'🤝 Équipe',ic:'🗺',name:'Explorateur',desc:p=>`Réussir ${p.n} cartes différentes`,p:{n:10},pl:{n:'cartes'}},
+ {id:'soudee',fam:'🤝 Équipe',ic:'🤝',name:'Équipe soudée',desc:p=>`Réussir des cartes avec ${p.n} partenaires différents`,p:{n:3},pl:{n:'partenaires'}},
+];
+const TIERIC=['','🥉','🥈','🥇','🏆'];
+function defBadgeCfg(){const c={on:true,b:{}};BADGES.forEach(b=>{c.b[b.id]={on:true,...JSON.parse(JSON.stringify(b.p||{}))}});return c}
+function badgeCfg(){
+  if(S.session&&S.session.badgeCfg)return S.session.badgeCfg;
+  const d=defBadgeCfg();S.settings.badges=S.settings.badges||d;const c=S.settings.badges;
+  BADGES.forEach(b=>{c.b[b.id]=Object.assign({},d.b[b.id],c.b[b.id]||{})});if(c.on===undefined)c.on=true;return c;
+}
+/* entrées d'un élève : liste chronologique d'objets {ok,st,pts,time,tries,lvb,lva,lim,late,duel,win,om,carte,m} */
+function newBState(){return{att:0,ok:0,ok1:0,maxStars:0,sessions:0,lastMax:0,bestSess:0,chrono:0,cards:[],partners:[],earned:{}}}
+function stepSession(state,entries,cfg,sid){
+  if(!entries.length)return state;
+  const C=cfg.b,E=state.earned,cards=new Set(state.cards),partners=new Set(state.partners);
+  const give=(id,tier=1)=>{if(cfg.on&&C[id]&&C[id].on&&(E[id]||0)<tier)E[id]=tier};
+  const tierOf=(v,t)=>t.filter(x=>v>=x).length;
+  const prevMax=state.lastMax,prevBest=state.bestSess;
+  state.sessions++;
+  if(C.fidele)give('fidele',tierOf(state.sessions,C.fidele.t));
+  let s1=0,cf=0,asc=0,wr=0,sp=0,sOk=0,sFail=0,sMax=0;
+  entries.forEach(e=>{
+    state.att++;
+    if(C.marathon)give('marathon',tierOf(state.att,C.marathon.t));
+    sp+=e.pts||0;
+    if(e.ok){
+      state.ok++;sOk++;give('premier');
+      if((e.tries||1)>=2)give('perseverant');
+      if(C.revenant&&cf>=C.revenant.n)give('revenant');
+      cf=0;
+      if((e.tries||1)===1){state.ok1++;s1++}else s1=0;
+      if(C.sansfaute)give('sansfaute',tierOf(s1,C.sansfaute.t));
+      if(C.lynx&&state.ok1>=C.lynx.n)give('lynx');
+      if(e.st>sMax)sMax=e.st;
+      if(e.st>state.maxStars)state.maxStars=e.st;
+      if(C.palier)give('palier',tierOf(state.maxStars,C.palier.t));
+      if(prevMax>0&&e.st>prevMax)give('progres');
+      if(C.eclair&&e.time!=null&&e.time<e.st*C.eclair.m*60000)give('eclair');
+      if(e.lim&&!e.late){state.chrono++;if(C.chrono&&state.chrono>=C.chrono.n)give('chrono')}
+      cards.add(String(e.carte));if(C.explorateur&&cards.size>=C.explorateur.n)give('explorateur');
+      (e.m||[]).forEach(x=>{if(x!==sid)partners.add(x)});if(C.soudee&&partners.size>=C.soudee.n)give('soudee');
+    }else{cf++;s1=0;sFail++}
+    if(e.lvb!=null&&e.lva!=null&&!e.duel){if(e.lva>e.lvb){asc++;if(C.ascension&&asc>=C.ascension.n)give('ascension')}else asc=0}
+    if(e.duel){if(e.win){wr++;give('duelliste');if(C.invaincu&&wr>=C.invaincu.n)give('invaincu');if(e.om)give('tombeur')}else wr=0}
+    if(C.parfaite&&sFail===0&&sOk>=C.parfaite.n)give('parfaite');
+    if(prevBest>0&&sp>prevBest)give('record');
+  });
+  state.lastMax=sMax;state.bestSess=Math.max(prevBest,sp);
+  state.cards=[...cards];state.partners=[...partners];
+  return state;
+}
+const flatEntry=h=>({ok:!!h.ok,st:h.stars,pts:h.pts||0,time:h.time,tries:h.tries||1,lvb:h.lvb,lva:h.lva,lim:!!h.lim,late:!!h.late,duel:!!h.duel,win:!!h.win,om:!!h.om,carte:h.carte,m:h.members||[],ts:h.ts||0});
+function sessEntries(sess,sid){const out=[];(sess.groups||[]).forEach(g=>(g.hist||[]).forEach(h=>{if((h.members||[]).includes(sid))out.push(flatEntry(h))}));return out.sort((a,b)=>a.ts-b.ts)}
+function archiveSession(sess){
+  if(!sess||!sess.v2||!S.classes.some(c=>c.id===sess.classId))return;
+  S.archive=S.archive||{};
+  const E=[];(sess.groups||[]).forEach(g=>(g.hist||[]).forEach(h=>E.push(flatEntry(h))));
+  S.archive[sess.id]={classId:sess.classId,created:sess.created,e:E};
+}
+function priorFromArchive(sid,exceptId){
+  const cfg=badgeCfg();let st=newBState();
+  Object.entries(S.archive||{}).filter(([k])=>k!==exceptId).sort((a,b)=>a[1].created-b[1].created).forEach(([k,a])=>{
+    stepSession(st,a.e.filter(e=>e.m.includes(sid)).sort((x,y)=>x.ts-y.ts),cfg,sid)});
+  return st;
+}
+function badgesOf(sid){
+  const cfg=badgeCfg();const s=S.session;
+  let st=s&&s.prior&&s.prior[sid]?clone(s.prior[sid]):priorFromArchive(sid,s?s.id:null);
+  st.earned=Object.assign({},st.earned);
+  if(s)stepSession(st,sessEntries(s,sid),cfg,sid);
+  return st;
+}
+function badgeSnap(ids){const o={};ids.forEach(id=>{o[id]=badgesOf(id).earned});return o}
+function newBadges(before,ids){
+  const out=[];ids.forEach(id=>{const a=badgesOf(id).earned,b=before[id]||{};for(const k in a)if((a[k]||0)>(b[k]||0))out.push({id,b:k,t:a[k]})});return out;
+}
+const BD=id=>BADGES.find(b=>b.id===id);
+function badgeChip(bid,tier,big){const b=BD(bid);if(!b)return'';const cfg=badgeCfg().b[bid]||{};
+  return`<span class="bchip" title="${esc(b.desc(cfg))}" style="${big?'font-size:15px;padding:6px 10px':''}">${b.ic} ${esc(b.name)}${b.tiers?' '+TIERIC[Math.min(tier,4)]:''}</span>`}
+function showNewBadges(list){
+  if(!list.length)return;const box=document.querySelector('#md .result');if(!box)return;
+  const byStu={};list.forEach(x=>{(byStu[x.id]=byStu[x.id]||[]).push(x)});
+  const html=`<div class="newbadge"><div style="font-size:28px">🏅</div><b>Nouveau${list.length>1?'x':''} badge${list.length>1?'s':''} !</b>${Object.entries(byStu).map(([id,l])=>`<div style="margin-top:6px"><span class="sub">${esc(stu(id)?.name||'?')} :</span> ${l.map(x=>badgeChip(x.b,x.t,true)).join(' ')}</div>`).join('')}</div>`;
+  const btn=box.querySelector('button');btn.insertAdjacentHTML('beforebegin',html);
+}
+let bView={sid:null};
+function rBadges(){
+  const cls=curClass();const s=S.session;const cfg=badgeCfg();
+  const ids=cls?cls.students.map(x=>x.id):s?Object.keys(s.roster||{}):[];
+  const active=BADGES.filter(b=>cfg.on&&cfg.b[b.id]&&cfg.b[b.id].on);
+  let h=`<div class="toolbar"><h2>🏅 Badges ${cls?'· '+esc(cls.name):s&&s.className?'· '+esc(s.className):''}</h2>${P('<button class="btn sm" onclick="bView.cfg=!bView.cfg;rBadges()">⚙️ Choisir les badges</button>')}</div>`;
+  if(isProf()&&bView.cfg)h+=badgeCfgPanel();
+  if(!cfg.on){$('#main').innerHTML=h+'<div class="card empty">Les badges sont désactivés.</div>';return}
+  if(!ids.length){$('#main').innerHTML=h+'<div class="card empty">Aucun élève.</div>';return}
+  const all=ids.map(id=>({id,name:stu(id)?.name||'?',e:badgesOf(id).earned})).map(x=>({...x,n:active.filter(b=>x.e[b.id]).length})).sort((a,b)=>b.n-a.n||a.name.localeCompare(b.name));
+  if(bView.sid&&!ids.includes(bView.sid))bView.sid=null;
+  if(bView.sid){
+    const x=all.find(a=>a.id===bView.sid);const st=badgesOf(x.id);
+    h+=`<div class="card"><div class="toolbar"><h2 style="font-size:18px">${esc(x.name)} · ${x.n}/${active.length} badges</h2><button class="btn sm" onclick="bView.sid=null;rBadges()">← Toute la classe</button></div>
+     <p class="sub" style="margin-top:0">${st.att} cartes tentées · ${st.ok} réussies · ${st.ok1} du premier coup · meilleur niveau ${st.maxStars?starsH(st.maxStars):'–'} · ${st.sessions} séance${st.sessions>1?'s':''}</p>`;
+    let fam='';
+    active.forEach(b=>{const t=x.e[b.id]||0;const p=cfg.b[b.id];
+      if(b.fam!==fam){if(fam)h+='</div>';fam=b.fam;h+=`<h3>${fam}</h3><div class="bgrid">`}
+      const max=b.tiers?p.t.length:1;
+      h+=`<div class="bcard ${t?'on':''}"><div class="bic">${b.ic}</div><b>${esc(b.name)}</b>${b.tiers?`<div>${p.t.map((v,i)=>`<span style="opacity:${t>i?1:.25}">${TIERIC[Math.min(i+1,4)]}</span>`).join('')}</div>`:''}<small>${esc(b.desc(p))}</small>${t?`<span class="pill" style="background:var(--green);color:#fff">${b.tiers?`${t}/${max}`:'gagné'}</span>`:''}</div>`});
+    h+='</div></div>';
+  }else{
+    h+=`<div class="card tablewrap" style="padding:6px 10px"><table><tr><th>Élève</th><th class="n">Badges</th><th>Gagnés</th></tr>${all.map(x=>`<tr style="cursor:pointer" onclick="bView.sid='${x.id}';rBadges()"><td><b>${esc(x.name)}</b></td><td class="n"><b>${x.n}</b>/${active.length}</td><td>${active.filter(b=>x.e[b.id]).map(b=>`<span title="${esc(b.name)}" style="font-size:20px">${b.ic}</span>`).join(' ')||'<span class="sub">–</span>'}</td></tr>`).join('')}</table></div>
+    <p class="sub" style="text-align:center">Touche un élève pour voir ses badges et ceux qui restent à gagner.</p>`;
+  }
+  $('#main').innerHTML=h;
+}
+function badgeCfgPanel(){
+  const c=S.settings.badges?badgeCfg():badgeCfg();const src=S.session&&S.session.badgeCfg?'S.session.badgeCfg':'S.settings.badges';
+  const set=`${src==='S.session.badgeCfg'?'syncBadgeCfg()':'save()'};rBadges()`;
+  let h=`<div class="card"><h3 style="margin-top:0">⚙️ Badges actifs</h3><p class="sub">Coche les badges à utiliser et règle leurs seuils.${S.session?' Les changements s\'appliquent tout de suite à la séance en cours.':''} Désactiver un badge le cache sans effacer ce que les élèves ont déjà gagné.</p>
+  <div class="row" style="margin-bottom:10px"><button class="chip" style="${c.on?'background:var(--green);color:#fff;border-color:var(--green)':''}" onclick="${src}.on=!${src}.on;${set}">${c.on?'✓ Badges activés':'Badges désactivés'}</button>
+  <button class="btn sm" onclick="BADGES.forEach(b=>${src}.b[b.id].on=true);${set}">Tout cocher</button><button class="btn sm" onclick="BADGES.forEach(b=>${src}.b[b.id].on=false);${set}">Tout décocher</button></div>`;
+  let fam='';
+  BADGES.forEach(b=>{const p=c.b[b.id];
+    if(b.fam!==fam){fam=b.fam;h+=`<h3>${fam}</h3>`}
+    h+=`<div class="row" style="padding:6px 0;border-bottom:1px solid var(--line)"><label class="row grow" style="cursor:pointer"><input type="checkbox" ${p.on?'checked':''} onchange="${src}.b['${b.id}'].on=this.checked;${set}" style="width:20px;height:20px"> <span style="font-size:20px">${b.ic}</span> <b>${esc(b.name)}</b> <span class="sub">${esc(b.desc(p))}</span></label>`;
+    if(b.tiers)h+=p.t.map((v,i)=>`<label class="sub">${TIERIC[Math.min(i+1,4)]} <input type="number" min="1" value="${v}" style="width:58px;text-align:center" onchange="${src}.b['${b.id}'].t[${i}]=Math.max(1,+this.value||${v});${set}"></label>`).join('');
+    else if(b.pl)h+=Object.keys(b.pl).map(k=>`<label class="sub"><input type="number" min="0.5" step="${k==='m'?0.5:1}" value="${p[k]}" style="width:64px;text-align:center" onchange="${src}.b['${b.id}'].${k}=Math.max(${k==='m'?0.5:1},+this.value||${p[k]});${set}"> ${b.pl[k]}</label>`).join('');
+    h+='</div>';
+  });
+  return h+'</div>';
+}
+function syncBadgeCfg(){const c=clone(S.session.badgeCfg);S.settings.badges=clone(c);act('badges',()=>{S.session.badgeCfg=c})}
 
 setInterval(tick,1000);
 if(S.session&&S.session.room&&canSync()){startSync(S.session.room);poll()}
