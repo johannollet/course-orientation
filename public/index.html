@@ -249,7 +249,7 @@ function rRole(){
 }
 
 /* ============ navigation ============ */
-const TABS=[['seance','🏃 Séance'],['classement','🏆 Classement'],['badges','🏅 Badges'],['alertes','🔔 Alertes'],['classes','👥 Classes'],['codes','🔑 Codes'],['reglages','⚙️ Réglages']];
+const TABS=[['seance','🏃 Séance'],['defis','⚔️ Défis'],['classement','🏆 Classement'],['badges','🏅 Badges'],['alertes','🔔 Alertes'],['classes','👥 Classes'],['codes','🔑 Codes'],['reglages','⚙️ Réglages']];
 const PROT=['alertes','classes','codes','reglages'];
 function go(t){if(PROT.includes(t))needPin(()=>{tab=t;render()});else{tab=t;render()}}
 const visibleTabs=()=>TABS.filter(([k])=>isProf()||!PROT.includes(k));
@@ -260,7 +260,7 @@ function renderHead(){
   lb.style.display='';lb.textContent=isProf()?'👨‍🏫 Prof · changer':'🧭 Élève · changer';
   const c=curClass();$('#htitle').innerHTML=esc("Course d'orientation"+(S.session&&c?' · '+c.name:(S.session&&S.session.className?' · '+S.session.className:'')))+(isOnline()?' <small style="font-weight:600;opacity:.85">📡 '+esc(S.session.room)+'</small>'+syncDot():'');
 }
-function render(){if(!mode){renderAlertBar();return rRole()}if(!isProf()&&PROT.includes(tab))tab='seance';renderHead();({seance:rSeance,classement:rClassement,alertes:rAlertes,badges:rBadges,classes:rClasses,codes:rCodes,reglages:rReglages})[tab]();checkAlerts();renderAlertBar();}
+function render(){if(!mode){renderAlertBar();return rRole()}if(!isProf()&&PROT.includes(tab))tab='seance';renderHead();({seance:rSeance,classement:rClassement,alertes:rAlertes,badges:rBadges,defis:rDefis,classes:rClasses,codes:rCodes,reglages:rReglages})[tab]();checkAlerts();renderAlertBar();}
 
 /* ============ données ============ */
 const curClass=()=>S.classes.find(c=>c.id===(S.session?S.session.classId:S.classId))||null;
@@ -423,7 +423,7 @@ function rSeance(){
 
 function rSetup(){
   if(!S.classes.length){$('#main').innerHTML=`<div class="card empty"><h2>Aucune classe</h2><p>Crée une classe (ou importe tes listes Excel) pour former les équipes.</p><div class="row" style="justify-content:center"><button class="btn primary" onclick="go('classes')">👥 Créer une classe</button><button class="btn" onclick="joinScreen()">📡 Rejoindre une séance</button></div></div>`;return}
-  if(!setup)setup={classId:(S.classes.find(c=>c.id===S.classId)||S.classes[0]).id,mode:'progression',size:2,compo:'heterogene',startLevel:1,pairing:'niveau',nGroups:0,groups:null,absent:{},allowed:[1,2,3,4,5,6],online:false,limit:defLimit(),tries:1};
+  if(!setup)setup={classId:(S.classes.find(c=>c.id===S.classId)||S.classes[0]).id,mode:'progression',size:2,compo:'heterogene',startLevel:1,pairing:'niveau',nGroups:0,groups:null,absent:{},allowed:[1,2,3,4,5,6],online:false,limit:defLimit(),tries:1,wait:30};
   const cls=S.classes.find(c=>c.id===setup.classId)||S.classes[0];setup.classId=cls.id;
   const seg=(key,obj)=>`<div class="seg">${Object.entries(obj).map(([k,[t,d]])=>`<button class="${String(setup[key])===k?'on':''}" onclick="setup.${key}=${isNaN(k)?`'${k}'`:k};setup.groups=null;rSetup()"><b>${t}</b><small>${d}</small></button>`).join('')}</div>`;
   const sizes=setup.mode==='defi'?{1:['1 contre 1','Solo'],2:['2 contre 2','Duos'],3:['3 contre 3','Trios']}:{1:['Solo','1 élève'],2:['Duo','2 élèves'],3:['Trio','3 élèves']};
@@ -438,7 +438,7 @@ function rSetup(){
   <div class="field"><label>Niveaux autorisés pour cette séance <span class="sub">(touche pour activer / désactiver)</span></label><div class="seg">${[1,2,3,4,5,6].map(l=>`<button class="${setup.allowed.includes(l)?'on':''}" onclick="toggleSetupLv(${l})" style="flex:1 1 60px;text-align:center">${starsH(l)}<small>${l}★</small></button>`).join('')}</div></div>
   ${setup.mode==='progression'?`<div class="field"><label>Niveau de départ</label><div class="seg">${setup.allowed.map(l=>`<button class="${setup.startLevel===l?'on':''}" onclick="setup.startLevel=${l};rSetup()" style="flex:1 1 60px;text-align:center">${starsH(l)}</button>`).join('')}<button class="${setup.startLevel==='auto'?'on':''}" onclick="setup.startLevel='auto';rSetup()" style="flex:1 1 120px;text-align:center"><b>Auto</b><small>selon niveau élèves</small></button></div></div>`:''}
   ${setup.mode==='defi'?`<div class="field"><label>Appariement des duels</label>${seg('pairing',{niveau:['Niveau proche','Les équipes de même niveau s\'affrontent'],aleatoire:['Aléatoire','Adversaires tirés au sort'],libre:['Au choix des élèves','Chaque équipe choisit son adversaire']})}</div>`:''}
-  <div class="field"><label>🔁 Essais par carte</label>${triesEditor(setup.tries,'setup.tries','rSetup()')}</div>
+  <div class="field"><label>🔁 Essais par carte</label>${triesEditor(setup.tries,'setup.tries','rSetup()')}${setup.tries!==1?waitEditor(setup.wait??30,'setup.wait','rSetup()'):''}</div>
   <div class="field"><label>⏱ Temps limite pour valider une carte</label>${limitEditor(setup.limit,'setup.limit','rSetup()')}</div>
   <div class="field"><label>Tablettes</label><div class="seg"><button class="${setup.online?'':'on'}" onclick="setup.online=false;rSetup()"><b>📱 Une seule tablette</b><small>fonctionne sans internet</small></button><button class="${setup.online?'on':''}" onclick="setup.online=true;rSetup()"><b>📡 Plusieurs tablettes synchronisées</b><small>internet requis (partage de connexion 5G)</small></button></div>
   ${setup.online&&!canSync()?'<div class="warn" style="margin-top:8px">Le mode multi-tablettes fonctionne seulement avec la version en ligne de l\'appli (adresse netlify.app).</div>':''}</div>
@@ -482,7 +482,7 @@ async function startSession(){
   const cls0=S.classes.find(c=>c.id===setup.classId);const roster={};cls0.students.forEach(x=>{roster[x.id]={name:x.name,level:x.level||3}});
   if(setup.online&&!canSync())return toast('Multi-tablettes : utilise la version en ligne de l\'appli');
   const online=setup.online;
-  S.session={id:uid(),v2:true,classId:setup.classId,className:cls0.name,roster,mode:setup.mode,size:setup.size,pairing:setup.pairing,allowed:[...setup.allowed],limit:JSON.parse(JSON.stringify(setup.limit)),tries:setup.tries,created:Date.now(),duels:[],round:0,
+  S.session={id:uid(),v2:true,classId:setup.classId,className:cls0.name,roster,mode:setup.mode,size:setup.size,pairing:setup.pairing,allowed:[...setup.allowed],limit:JSON.parse(JSON.stringify(setup.limit)),tries:setup.tries,wait:setup.wait??30,created:Date.now(),duels:[],round:0,
     groups:gl.map((m,i)=>{
       let start=setup.startLevel==='auto'?Math.round(avgLevel(m)):setup.startLevel;
       const al=[...setup.allowed].sort((x,y)=>x-y);start=al.reduce((p,c)=>Math.abs(c-start)<Math.abs(p-start)?c:p,al[0]);
@@ -517,14 +517,14 @@ function rDash(){
   ${syncBanner()}
   ${(S.session.limit&&S.session.limit.type!=='none')||(S.session.tries??1)!==1?`<div class="info">${(S.session.tries??1)!==1?`🔁 ${S.session.tries===0?'Essais illimités':S.session.tries+' essais par carte'}`:''}${(S.session.limit&&S.session.limit.type!=='none')&&(S.session.tries??1)!==1?' · ':''}${S.session.limit&&S.session.limit.type!=='none'?`⏱ Temps limite : ${limText(S.session.limit)}`:''}</div>`:''}
   ${allowedLv().length<6?`<div class="info">Niveaux autorisés : ${allowedLv().map(l=>starsH(l)).join(' · ')}</div>`:''}
-  <div class="grid">${s.groups.map(gCard).join('')}</div>`;
+  <div class="grid">${s.groups.filter(g=>!g.adhoc).map(gCard).join('')}</div>`;
   $('#main').innerHTML=h;tick();
 }
 function gCard(g){
   const mem=g.members.map(id=>esc(stu(id)?.name||'?')).join(' · ');
   const dots=g.hist.slice(-12).map(x=>`<span class="dot ${x.ok?'ok':'ko'}" title="Carte ${esc(x.carte)}">${x.stars}</span>`).join('');
   let body;
-  if(g.cur)body=`<div class="cur"><span>Carte</span><span class="num">${esc(g.cur.carte)}</span>${starsH(g.cur.stars)}${g.cur.fails?`<span class="pill" style="background:#fdeaea;color:var(--red)">essai n°${g.cur.fails+1}</span>`:''}<span class="timer" data-t0="${g.cur.t0}" data-lim="${g.cur.lim||0}"></span></div>
+  if(g.cur)body=`<div class="cur"><span>Carte</span><span class="num">${esc(g.cur.carte)}</span>${starsH(g.cur.stars)}${g.cur.fails?`<span class="pill" style="background:#fdeaea;color:var(--red)">essai n°${g.cur.fails+1}</span>`:''}${retryWaitLeft(g)>0?`<span class="pill">⏳ <span class="wait" data-until="${Date.now()+retryWaitLeft(g)}"></span></span>`:''}<span class="timer" data-t0="${g.cur.t0}" data-lim="${g.cur.lim||0}"></span></div>
     <div class="row"><button class="btn primary grow" style="padding:14px" onclick="openValidate('${g.id}')">✅ Valider le code</button><button class="btn" title="Changer / retirer la carte" onclick="cardMenu('${g.id}')">⋯</button></div>`;
   else body=`<button class="btn big orange" onclick="newCard('${g.id}')">🧭 Nouvelle carte${S.session.mode==='progression'?' '+starsH(g.level).replace('st"','st" style="color:#fff"'):''}</button>`;
   return `<div class="gcard" style="--c:${g.color}"><div class="ghead"><b>${esc(g.name)}</b><span class="pts">${fmtP(g.pts)} pts</span></div>
@@ -535,7 +535,8 @@ function gCard(g){
 function pickCard(st,g){
   const pool=cardsOf(st);if(!pool.length)return null;
   const busy=new Set(S.session.groups.filter(x=>x.cur).map(x=>String(x.cur.carte)));
-  const done=new Set(g?g.done.map(String):[]);
+  const mem=new Set(g?g.members:[]);
+  const done=new Set(g?S.session.groups.filter(x=>x===g||x.members.some(m=>mem.has(m))).flatMap(x=>x.done.map(String)):[]);
   let c=pool.filter(c=>!busy.has(String(c.carte))&&!done.has(String(c.carte)));
   if(!c.length)c=pool.filter(c=>!busy.has(String(c.carte)));
   if(!c.length)c=pool;
@@ -553,7 +554,8 @@ function cardCheck(num){
   if(!num)return{ok:false,msg:''};
   const c=findCard(num);
   if(!c)return{ok:false,msg:`❌ La carte n°${esc(num)} n'existe pas dans les codes.`};
-  if(g.done.map(String).includes(c.carte)&&!(g.cur&&String(g.cur.carte)===c.carte))return{ok:false,msg:`⚠️ Ton équipe a déjà fait la carte n°${esc(num)} (mêmes réponses à tous les niveaux). Choisis-en une autre.`};
+  const memC=new Set(g.members);const doneAll=S.session.groups.filter(x=>x===g||x.members.some(m=>memC.has(m))).flatMap(x=>x.done.map(String));
+  if(doneAll.includes(c.carte)&&!(g.cur&&String(g.cur.carte)===c.carte))return{ok:false,msg:`⚠️ Ton équipe a déjà fait la carte n°${esc(num)} (mêmes réponses à tous les niveaux). Choisis-en une autre.`};
   const other=S.session.groups.find(x=>x.id!==g.id&&x.cur&&String(x.cur.carte)===c.carte);
   return{ok:true,card:c,msg:other?`ℹ️ ${esc(other.name)} court déjà avec la carte n°${esc(num)}.`:`✅ Carte n°${esc(num)} trouvée.`};
 }
@@ -595,6 +597,8 @@ function giveUp(gid){closeModal();applyResult(gid,false,['abandon'])}
 /* ---- saisie du code ---- */
 function openValidate(gid){
   const g=G(gid);if(!g||!g.cur){toast('Cette carte a déjà été validée');return render()}
+  const wl=retryWaitLeft(g);
+  if(wl>0)return openModal(`<div class="result"><div class="ic">⏳</div><h2>Patiente un peu…</h2><p class="sub">${esc(g.name)} · carte ${esc(g.cur.carte)}</p><p>Nouvel essai possible dans <b class="wait" data-until="${Date.now()+wl}">${Math.ceil(wl/1000)} s</b>,<br>ou dès qu'une autre équipe aura validé sur cette tablette.</p><p class="sub">Profites-en pour retourner vérifier tes balises !</p><button class="btn primary big" onclick="closeModal()">OK</button></div>`);
   const c=g.cur;const card=findCard(c.carte,c.stars);
   if(!card)return toast('Carte introuvable dans les codes');
   let f='';
@@ -628,6 +632,8 @@ function submitCode(gid){
   closeModal();applyResult(gid,errs.length===0,errs);
 }
 function award(g,pts){g.pts+=pts}
+const LOCALVAL=[];
+function retryWaitLeft(g){const c=g&&g.cur;if(!c||!c.retryAt)return 0;const left=c.retryAt-Date.now();if(left<=0)return 0;if(LOCALVAL.some(x=>x.gid!==g.id&&x.ts>c.failTs))return 0;return left}
 /* applique un résultat : fonction pure sur S.session (rejouable en mode multi-tablettes) */
 function applyResult(gid,ok,errs){
   const g0=G(gid);if(!g0||!g0.cur)return;
@@ -636,6 +642,7 @@ function applyResult(gid,ok,errs){
   const fin=errs.includes('abandon')||errs.includes('time');
   const mem=[...g0.members];let snap=null;try{snap=badgeSnap(mem)}catch(e){}
   const info=act('validation '+g0.name,()=>resultMut(gid,t0,ok,time,now,fin));
+  LOCALVAL.push({gid,ts:Date.now()});if(LOCALVAL.length>200)LOCALVAL.shift();
   if(!info)return;
   if(info.retry)return showRetry(errs,info);
   setTimeout(()=>{try{if(snap)showNewBadges(newBadges(snap,mem))}catch(e){console.warn(e)}},0);
@@ -648,7 +655,7 @@ function resultMut(gid,t0,ok,time,now,fin){
   const g=G(gid);if(!g||!g.cur||g.cur.t0!==t0)return null;
   const c=g.cur;const st=c.stars;
   if(!ok&&!fin&&!(c.lim&&time>c.lim)&&(c.fails||0)+1<maxTries()){
-    c.fails=(c.fails||0)+1;
+    c.fails=(c.fails||0)+1;c.failTs=now;c.retryAt=now+((S.session.wait??30)*1000);
     return{retry:true,fails:c.fails,max:maxTries(),name:g.name,duel:!!c.duel};
   }
   const key=String(c.carte);if(!g.done.includes(key))g.done.push(key);
@@ -669,7 +676,7 @@ function showRetry(errs,info){
   else if(errs.length&&S.settings.showErrors==='which')det=`<p>À revoir : ${errs.map(k=>k==='dep'?'lettre de départ':k==='arr'?"lettre d'arrivée":'balise n°'+(+k+1)).join(', ')}</p>`;
   const left=info.max===Infinity?'':` (encore ${info.max-info.fails} essai${info.max-info.fails>1?'s':''})`;
   openModal(`<div class="result ko"><div class="ic">🔁</div><h2>Code faux… retente ta chance !</h2><p class="sub">${esc(info.name)}</p>${det}
-  <p>Ta carte reste active${left}. Retourne vérifier tes balises puis revalide le code.</p>${info.duel?'':'<p class="sub">Une réussite maintenant rapporte la moitié des points.</p>'}
+  <p>Ta carte reste active${left}. Retourne vérifier tes balises puis revalide le code.</p>${(S.session.wait??30)>0?`<p>⏳ Nouvel essai possible dans <b>${S.session.wait??30} s</b> ou après le passage d'une autre équipe sur cette tablette.</p>`:''}${info.duel?'':'<p class="sub">Une réussite maintenant rapporte la moitié des points.</p>'}
   <button class="btn primary big" onclick="closeModal()">OK</button></div>`);
 }
 function showResult(ok,errs,line,line2,name){
@@ -694,11 +701,11 @@ function toggleLiveLv(l){let a=allowedLv();if(a.includes(l)){if(a.length===1)ret
 function editTeams(){
   needPin(()=>{
     const s=S.session;const cls=curClass();
-    const inG=new Set(s.groups.flatMap(g=>g.members));
+    const inG=new Set(s.groups.filter(g=>!g.adhoc).flatMap(g=>g.members));
     const pool=cls?cls.students:Object.entries(s.roster||{}).map(([id,r])=>({id,...r}));
     const free=pool.filter(x=>!inG.has(x.id));
     openModal(`<h2>Modifier les équipes</h2><p class="sub">Déplace un élève ou ajoute un retardataire. Les points déjà gagnés restent acquis.</p>
-    ${s.groups.map((g,gi)=>`<div class="gbox" style="--c:${g.color};margin-bottom:8px"><div class="row"><input type="text" value="${esc(g.name)}" onchange="renameGroup('${g.id}',this.value)" style="flex:1"></div>
+    ${s.groups.filter(g=>!g.adhoc).map((g,gi)=>`<div class="gbox" style="--c:${g.color};margin-bottom:8px"><div class="row"><input type="text" value="${esc(g.name)}" onchange="renameGroup('${g.id}',this.value)" style="flex:1"></div>
       ${g.members.map(id=>`<div class="mem"><span class="grow">${esc(stu(id)?.name)}</span><select onchange="moveLive('${id}','${g.id}',this.value)"><option value="">—</option>${s.groups.map(x=>`<option value="${x.id}" ${x.id===g.id?'selected':''}>${esc(x.name)}</option>`).join('')}<option value="__out">Retirer</option></select></div>`).join('')}</div>`).join('')}
     ${free.length?`<h3>Élèves hors équipe</h3>${free.map(f=>`<div class="mem row"><span class="grow">${esc(f.name)}</span><select onchange="moveLive('${f.id}',null,this.value)"><option value="">Ajouter à…</option>${s.groups.map(x=>`<option value="${x.id}">${esc(x.name)}</option>`).join('')}</select></div>`).join('')}`:''}
     <div class="row" style="justify-content:space-between;margin-top:12px"><button class="btn sm" onclick="addLiveGroup()">+ Nouvelle équipe</button><button class="btn primary" onclick="closeModal();render()">Terminé</button></div>`);
@@ -709,19 +716,20 @@ function moveLive(id,from,to){if(!to)return;
   const sObj=stu(id);let pr=null;try{if(S.session.prior&&!S.session.prior[id]&&sObj)pr=priorFromArchive(id,S.session.id)}catch(e){}
   act('équipes',()=>{const s=S.session;if(sObj&&!s.roster)s.roster={};if(sObj&&!s.roster[id])s.roster[id]={name:sObj.name,level:sObj.level||3};if(pr&&s.prior&&!s.prior[id])s.prior[id]=pr;
     s.groups.forEach(g=>{g.members=g.members.filter(x=>x!==id)});if(to!=='__out'){const g=G(to);if(g)g.members.push(id)}});editTeams()}
-function addLiveGroup(){const nid=uid();act('nouvelle équipe',()=>{const s=S.session;const i=s.groups.length;s.groups.push({id:nid,name:'Équipe '+(i+1),color:COLORS[i%COLORS.length],members:[],level:clampAllowed(1),maxLevel:0,pts:0,cur:null,hist:[],done:[],byes:0,wins:0})});editTeams()}
+function addLiveGroup(){const nid=uid();act('nouvelle équipe',()=>{const s=S.session;const i=s.groups.filter(g=>!g.adhoc).length;s.groups.push({id:nid,name:'Équipe '+(i+1),color:COLORS[i%COLORS.length],members:[],level:clampAllowed(1),maxLevel:0,pts:0,cur:null,hist:[],done:[],byes:0,wins:0})});editTeams()}
 
 /* ---- DÉFIS ---- */
 function pairDuels(){
   const s=S.session;
-  if(s.pairing==='libre'){s.duels=(s.duels||[]).filter(d=>d.state==='run');s.round=(s.round||0)+1;s.bye=null;return}
-  let gs=[...s.groups];
+  const keep=(s.duels||[]).filter(d=>d.adhoc);
+  if(s.pairing==='libre'){s.duels=(s.duels||[]).filter(d=>d.state==='run'||d.adhoc);s.round=(s.round||0)+1;s.bye=null;return}
+  let gs=s.groups.filter(g=>!g.adhoc);
   if(s.pairing==='aleatoire')shuffle(gs);
   else gs.sort((a,b)=>(b.pts-a.pts)||(avgLevel(b.members)-avgLevel(a.members))||(Math.random()-.5));
   let bye=null;
   if(gs.length%2){const minB=Math.min(...gs.map(g=>g.byes));const cands=gs.filter(g=>g.byes===minB);bye=cands[cands.length-1];bye.byes++;gs=gs.filter(g=>g!==bye)}
   s.round=(s.round||0)+1;
-  s.duels=[];for(let i=0;i<gs.length;i+=2){const a=gs[i],b=gs[i+1];
+  s.duels=[...keep];for(let i=0;i<gs.length;i+=2){const a=gs[i],b=gs[i+1];
     const auto=clamp(Math.round((avgLevel(a.members)+avgLevel(b.members))/2),1,6);
     s.duels.push({id:uid(),a:a.id,b:b.id,stars:nearestLevel(auto),manche:0,state:'wait',score:{a:0,b:0},res:{},winner:null,t0:null})}
   s.bye=bye?bye.id:null;
@@ -732,7 +740,7 @@ let chal={me:null,opp:null};
 const busyIds=()=>new Set((S.session.duels||[]).flatMap(d=>[d.a,d.b]));
 const metKey=(a,b)=>[a,b].sort().join('|');
 function challengePanel(){
-  const s=S.session;const busy=busyIds();const free=s.groups.filter(g=>!busy.has(g.id)&&g.members.length);
+  const s=S.session;const busy=busyIds();const free=s.groups.filter(g=>!g.adhoc&&!busy.has(g.id)&&g.members.length);
   if(chal.me&&!free.some(g=>g.id===chal.me))chal.me=null;if(chal.opp&&(!free.some(g=>g.id===chal.opp)||chal.opp===chal.me))chal.opp=null;
   const chip=(g,on,fn,extra='')=>`<button class="chip" style="border:2px solid ${on?g.color:'var(--line)'};${on?'background:#e8f3ec;font-weight:800':''}" onclick="${fn}">${esc(g.name)} <span class="sub">${fmtP(g.pts)} pts</span>${extra}</button>`;
   let h=`<div class="card"><h3 style="margin-top:0">🤝 Lancer un défi</h3>`;
@@ -756,8 +764,8 @@ function createDuel(){
 }
 function endDuel(did){const d=D(did);if(!d)return;const A=G(d.a),B=G(d.b);
   confirmBox(`Terminer le duel ${esc(A?.name)} – ${esc(B?.name)} ?<br><small class="sub">Score final ${d.score.a} – ${d.score.b}. Les deux équipes pourront choisir un nouvel adversaire.</small>`,()=>{
-  act('fin du duel',()=>{const s=S.session;const x=D(did);if(!x||x.state==='run')return;s.duels=s.duels.filter(y=>y.id!==did)})},'Terminer le duel',false)}
-function setPairing(p){needPin(()=>{act('appariement',()=>{S.session.pairing=p;if(p!=='libre'){S.session.groups.forEach(g=>g.cur=null);pairDuels()}else S.session.bye=null});chal={me:null,opp:null}})}
+  act('fin du duel',()=>{const s=S.session;const x=D(did);if(!x||x.state==='run')return;s.duels=s.duels.filter(y=>y.id!==did);if(x.adhoc)[x.a,x.b].forEach(id=>{const g=G(id);if(g)g.closed=true})})},'Terminer le duel',false)}
+function setPairing(p){needPin(()=>{act('appariement',()=>{S.session.pairing=p;if(p!=='libre'){S.session.groups.forEach(g=>{if(!g.adhoc)g.cur=null});pairDuels()}else S.session.bye=null});chal={me:null,opp:null}})}
 function rDefi(){
   const s=S.session;const fmt=s.size+' contre '+s.size;const libre=s.pairing==='libre';
   const bye=!libre&&s.bye&&G(s.bye);
@@ -771,7 +779,7 @@ function rDefi(){
     ${syncBanner()}
     ${bye?`<div class="info">⏸ <b>${esc(bye.name)}</b> est exempté ce tour-ci (nombre d'équipes impair).</div>`:''}
     ${libre?challengePanel():''}
-    <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(340px,1fr))">${s.duels.map(duelCard).join('')}</div>`;
+    <div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(340px,1fr))">${s.duels.map((d,i)=>[d,i]).filter(([d])=>!d.adhoc).map(([d,i])=>duelCard(d,i)).join('')}</div>`;
   tick();
 }
 function duelCard(d,i){
@@ -786,11 +794,11 @@ function duelCard(d,i){
     }
     return`<div class="side ${d.winner===k?'win':''}" style="--c:${g.color}"><b>${d.winner===k?'🏆 ':''}${esc(g.name)}</b>${g.members.length>1?`<span class="sub">${mem}</span>`:''}<span class="pts" style="font-size:15px">${fmtP(g.pts)} pts</span>${st}</div>`};
   let foot='';
-  const endBtn=S.session.pairing==='libre'&&d.state==='wait'?`<button class="btn sm ghost" style="margin-top:6px" onclick="endDuel('${d.id}')">${d.manche?'🏁 Fin du duel':'✕ Annuler ce duel'}</button>`:'';
+  const endBtn=(S.session.pairing==='libre'||d.adhoc)&&d.state==='wait'?`<button class="btn sm ghost" style="margin-top:6px" onclick="endDuel('${d.id}')">${d.manche?'🏁 Fin du duel':'✕ Annuler ce duel'}</button>`:'';
   if(d.state==='wait')foot=`<p class="sub" style="margin:10px 0 6px">Niveau de la manche ${d.manche+1} :</p><div class="starpick" style="grid-template-columns:repeat(6,1fr)">${[1,2,3,4,5,6].map(l=>`<button class="${d.stars===l?'on':''}" ${allowedLv().includes(l)?'':'disabled style="opacity:.25"'} style="font-size:13px;padding:8px 2px" onclick="setDuelStars('${d.id}',${l})">${l}★</button>`).join('')}</div><button class="btn orange big" style="margin-top:8px" onclick="launchDuel('${d.id}')">▶ Lancer la manche</button>${endBtn}`;
   else if(d.state==='run')foot=`<div class="row" style="margin-top:8px"><span class="sub">${starsH(d.stars)} · <span class="timer" data-t0="${d.t0}" data-lim="${d.lim||0}"></span></span><span class="grow"></span>${P(`<button class="btn sm ghost" onclick="closeDuel('${d.id}')">Clore la manche</button>`)}</div>`;
-  else foot=`<div class="info" style="margin:8px 0">${d.winner?`🏆 <b>${esc((d.winner==='a'?A:B).name)}</b> remporte la manche !`:'Manche nulle : aucun code juste.'}</div><div class="row"><button class="btn big grow" style="width:auto" onclick="nextManche('${d.id}')">➡ Manche suivante</button>${S.session.pairing==='libre'?`<button class="btn" onclick="endDuel('${d.id}')">🏁 Fin du duel</button>`:''}</div>`;
-  return`<div class="duel"><div class="dhead"><b>Duel ${i+1}${d.manche?` · manche ${d.manche}`:''}</b><span class="score">${d.score.a} – ${d.score.b}</span></div>
+  else foot=`<div class="info" style="margin:8px 0">${d.winner?`🏆 <b>${esc((d.winner==='a'?A:B).name)}</b> remporte la manche !`:'Manche nulle : aucun code juste.'}</div><div class="row"><button class="btn big grow" style="width:auto" onclick="nextManche('${d.id}')">➡ Manche suivante</button>${S.session.pairing==='libre'||d.adhoc?`<button class="btn" onclick="endDuel('${d.id}')">🏁 Fin du duel</button>`:''}</div>`;
+  return`<div class="duel"><div class="dhead"><b>${d.adhoc?`Défi ${G(d.a).members.length} contre ${G(d.b).members.length}`:'Duel '+(i+1)}${d.manche?` · manche ${d.manche}`:''}</b><span class="score">${d.score.a} – ${d.score.b}</span></div>
    <div class="sides">${side(A,'a')}<div class="vs">VS</div>${side(B,'b')}</div>${foot}</div>`;
 }
 function setDuelStars(did,l){act('niveau duel',()=>{const d=D(did);if(d&&d.state==='wait')d.stars=l})}
@@ -833,7 +841,7 @@ function closeDuel(did){confirmBox('Clore la manche ? Les équipes qui n\'ont pa
 function nextManche(did){act('manche suivante',()=>{const d=D(did);if(!d||d.state!=='done')return;d.state='wait';d.res={};d.winner=null;d.cards=null})}
 function newRound(){
   const running=S.session.duels.some(d=>d.state==='run');
-  confirmBox(running?'Des manches sont en cours. Créer de nouveaux duels quand même ?':'Créer de nouveaux duels ?<br><small class="sub">'+(S.session.pairing==='niveau'?'Appariement selon les points de la séance.':'Adversaires tirés au sort.')+'</small>',()=>{act('nouveaux duels',()=>{S.session.groups.forEach(g=>g.cur=null);pairDuels()})},'Nouveaux duels',false);
+  confirmBox(running?'Des manches sont en cours. Créer de nouveaux duels quand même ?':'Créer de nouveaux duels ?<br><small class="sub">'+(S.session.pairing==='niveau'?'Appariement selon les points de la séance.':'Adversaires tirés au sort.')+'</small>',()=>{act('nouveaux duels',()=>{S.session.groups.forEach(g=>{if(!g.adhoc)g.cur=null});pairDuels()})},'Nouveaux duels',false);
 }
 
 /* ============ MULTI-TABLETTES (synchronisation via le serveur Netlify) ============ */
@@ -985,14 +993,15 @@ function limitEditor(L,path,after){
   ${L.type!=='none'?'<p class="sub" style="margin:6px 0 0">Une carte validée après le temps limite rapporte 0 point, mais l\'équipe garde son niveau.</p>':''}`;
 }
 let limDraft=null;
-let triesDraft=1;
+let triesDraft=1,waitDraft=30;
+function waitEditor(v,path,after){return`<div class="row" style="margin-top:8px">⏳ Avant de retenter : attendre <input type="number" min="0" step="5" value="${v}" style="width:70px;text-align:center" onchange="${path}=Math.max(0,+this.value||0);${after}"> secondes <span class="sub">ou qu'une autre équipe ait validé sur la même tablette</span></div>`}
 function triesEditor(v,path,after){return`<div class="seg">${[[1,'1 essai','code faux = échec'],[2,'2 essais','une 2e chance'],[3,'3 essais',''],[0,'Illimité','jusqu\'à réussir ou abandonner']].map(([k,t,d])=>`<button class="${v===k?'on':''}" style="flex:1 1 110px" onclick="${path}=${k};${after}"><b>${t}</b>${d?`<small>${d}</small>`:''}</button>`).join('')}</div>
   ${v!==1?'<p class="sub" style="margin:6px 0 0">Après un code faux, la carte reste active : l\'équipe retourne vérifier ses balises. Le chrono continue. Une réussite au 2e essai (ou plus) rapporte la moitié des points (en défi : points complets, la course se joue au temps).</p>':''}`}
-function editLimit(){needPin(()=>{limDraft=JSON.parse(JSON.stringify(S.session.limit||defLimit()));triesDraft=S.session.tries??1;rLimit()})}
-function rLimit(){openModal(`<h2>🔁 Essais par carte</h2>${triesEditor(triesDraft,'triesDraft','rLimit()')}<h2 style="margin-top:18px">⏱ Temps limite</h2>${limitEditor(limDraft,'limDraft','rLimit()')}
+function editLimit(){needPin(()=>{limDraft=JSON.parse(JSON.stringify(S.session.limit||defLimit()));triesDraft=S.session.tries??1;waitDraft=S.session.wait??30;rLimit()})}
+function rLimit(){openModal(`<h2>🔁 Essais par carte</h2>${triesEditor(triesDraft,'triesDraft','rLimit()')}${triesDraft!==1?waitEditor(waitDraft,'waitDraft','rLimit()'):''}<h2 style="margin-top:18px">⏱ Temps limite</h2>${limitEditor(limDraft,'limDraft','rLimit()')}
   <p class="sub">Le nouveau temps s'applique aux cartes prises à partir de maintenant.</p>
   <div class="row" style="justify-content:flex-end;margin-top:14px"><button class="btn" onclick="closeModal()">Annuler</button><button class="btn primary" onclick="saveLimit()">Enregistrer</button></div>`)}
-function saveLimit(){const L=JSON.parse(JSON.stringify(limDraft)),T=triesDraft;closeModal();act('temps et essais',()=>{S.session.limit=L;S.session.tries=T});toast('Enregistré : '+(T===0?'essais illimités':T+' essai'+(T>1?'s':''))+' · temps '+limText(L))}
+function saveLimit(){const L=JSON.parse(JSON.stringify(limDraft)),T=triesDraft,W=waitDraft;closeModal();act('temps et essais',()=>{S.session.limit=L;S.session.tries=T;S.session.wait=W});toast('Enregistré : '+(T===0?'essais illimités':T+' essai'+(T>1?'s':''))+' · temps '+limText(L))}
 
 /* ============ CLASSEMENT ============ */
 function stats(){
@@ -1008,7 +1017,7 @@ function rClassement(){
   const st=stats();
   if(clsView==='groupes'){
     head=`<tr><th>#</th><th>Équipe</th><th class="n">Pts</th><th class="n">Réussites</th>${s.mode==='defi'?'<th class="n">Victoires</th>':''}<th class="n">Niv. max</th></tr>`;
-    rows=[...s.groups].sort((a,b)=>b.pts-a.pts).map(g=>({k:g.pts,html:`<td><b>${esc(g.name)}</b><div class="sub">${g.members.map(id=>esc(stu(id)?.name)).join(', ')}</div></td><td class="n"><b>${fmtP(g.pts)}</b></td><td class="n">${g.hist.filter(h=>h.ok).length}/${g.hist.length}</td>${s.mode==='defi'?`<td class="n">${g.wins||0}</td>`:''}<td class="n">${g.maxLevel?starsH(g.maxLevel):'–'}</td>`}));
+    rows=[...s.groups].filter(g=>!g.adhoc).sort((a,b)=>b.pts-a.pts).map(g=>({k:g.pts,html:`<td><b>${esc(g.name)}</b><div class="sub">${g.members.map(id=>esc(stu(id)?.name)).join(', ')}</div></td><td class="n"><b>${fmtP(g.pts)}</b></td><td class="n">${g.hist.filter(h=>h.ok).length}/${g.hist.length}</td>${s.mode==='defi'?`<td class="n">${g.wins||0}</td>`:''}<td class="n">${g.maxLevel?starsH(g.maxLevel):'–'}</td>`}));
   }else if(clsView==='eleves'){
     head=`<tr><th>#</th><th>Élève</th><th class="n">Pts</th><th class="n">Réussites</th><th class="n">Niv. max</th></tr>`;
     const ids=new Set([...s.groups.flatMap(g=>g.members),...Object.keys(st)]);
@@ -1034,7 +1043,7 @@ function exportResults(){
   if(!cls&&s)sheets.push({name:'Élèves',rows:[['Élève','Points séance','Réussites','Essais','Niveau max'],...Object.keys(s.roster||{}).map(id=>{const m=st[id]||{pts:0,ok:0,n:0,max:0};return[stu(id).name,m.pts,m.ok,m.n,m.max||'']}).sort((a,b)=>b[1]-a[1])]});
   if(cls)sheets.push({name:'Élèves',rows:[['Élève','Points séance','Réussites','Essais','Niveau max','Points cumulés'],...cls.students.map(x=>{const m=st[x.id]||{pts:0,ok:0,n:0,max:0};return[x.name,m.pts,m.ok,m.n,m.max||'',cumul(x)]}).sort((a,b)=>b[1]-a[1]||b[5]-a[5])]});
   if(s){
-    sheets.push({name:'Équipes',rows:[['Équipe','Membres','Points','Réussites','Essais','Victoires défi'],...[...s.groups].sort((a,b)=>b.pts-a.pts).map(g=>[g.name,g.members.map(id=>stu(id)?.name).join(', '),g.pts,g.hist.filter(h=>h.ok).length,g.hist.length,g.wins||0])]});
+    sheets.push({name:'Équipes',rows:[['Équipe','Membres','Points','Réussites','Essais','Victoires défi'],...[...s.groups].filter(g=>!g.adhoc).sort((a,b)=>b.pts-a.pts).map(g=>[g.name,g.members.map(id=>stu(id)?.name).join(', '),g.pts,g.hist.filter(h=>h.ok).length,g.hist.length,g.wins||0])]});
     const H=[];s.groups.forEach(g=>g.hist.forEach(h=>H.push([new Date(h.ts).toLocaleTimeString('fr-FR'),g.name,h.carte,h.stars,h.ok?'Réussi':'Échec',h.pts,h.time!=null?fmtT(h.time):'',h.duel?(h.win?'Victoire':'Défi'):'',h.ts])));
     H.sort((a,b)=>a[8]-b[8]);sheets.push({name:'Historique',rows:[['Heure','Équipe','Carte','Étoiles','Résultat','Points','Temps','Défi'],...H.map(r=>r.slice(0,8))]});
   }
@@ -1135,7 +1144,10 @@ function backup(){const b=new Blob([JSON.stringify(S)],{type:'application/json'}
 function restore(){pickFile('.json',async f=>{try{const d=JSON.parse(await f.text());if(!d.cards)throw 0;S=Object.assign(defState(),d);save();render();toast('Sauvegarde restaurée')}catch(e){toast('Fichier invalide')}})}
 
 /* ============ chrono ============ */
-function tick(){document.querySelectorAll('.timer[data-t0]').forEach(e=>{
+function tick(){document.querySelectorAll('.wait[data-until]').forEach(e=>{const r=+e.dataset.until-Date.now();e.textContent=r>0?Math.ceil(r/1000)+' s':'maintenant'});
+  (function(){})();
+  tickT();}
+function tickT(){document.querySelectorAll('.timer[data-t0]').forEach(e=>{
   const el=Date.now()-+e.dataset.t0,lim=+e.dataset.lim||0;
   if(!lim){e.textContent='⏱ '+fmtT(el);e.classList.remove('low','over');return}
   const r=lim-el;
@@ -1154,7 +1166,7 @@ function checkAlerts(){
   const add=(key,type,g,msg)=>{if(st.items[key])return;const a={key,type,gid:g.id,msg,ts:now,status:'new'};st.items[key]=a;fresh.push(a)};
   const minLv=allowedLv()[0];
   s.groups.forEach(g=>{
-    if(!g.members.length)return;
+    if(!g.members.length||g.closed)return;
     const c=g.cur;
     if(A.long.on&&c&&now-c.t0>A.long.min*60000)add(`long|${g.id}|${c.t0}`,'long',g,`carte ${esc(c.carte)} ${starsH(c.stars)} en cours depuis plus de ${A.long.min} min`);
     const H=g.hist||[];
@@ -1162,7 +1174,7 @@ function checkAlerts(){
       const last=H.slice(-A.fails.of),nf=last.filter(h=>!h.ok).length,lh=H[H.length-1];
       if(!lh.ok&&nf>=A.fails.n&&lh.ts>st.since)add(`fails|${g.id}|${H.length}`,'fails',g,`${nf} échecs sur les ${last.length} dernières cartes`);
     }
-    if(A.idle.on&&s.mode!=='defi'&&!c){
+    if(A.idle.on&&s.mode!=='defi'&&!c&&!g.adhoc){
       const lastAct=Math.max(s.created||0,st.since,...H.map(h=>h.ts||0));
       if(now-lastAct>A.idle.min*60000)add(`idle|${g.id}|${lastAct}`,'idle',g,`aucune carte depuis plus de ${A.idle.min} min`);
     }
@@ -1388,6 +1400,50 @@ function badgeCfgPanel(){
   return h+'</div>';
 }
 function syncBadgeCfg(){const c=clone(S.session.badgeCfg);S.settings.badges=clone(c);act('badges',()=>{S.session.badgeCfg=c})}
+
+/* ============ ONGLET DÉFIS (défis libres 1v1 … 3v3, 2v1, 2v3…) ============ */
+let xd={na:1,nb:1,a:[],b:[]};
+const realGroups=()=>S.session?S.session.groups.filter(g=>!g.adhoc):[];
+const xBusy=()=>new Set((S.session?S.session.groups:[]).filter(g=>g.adhoc&&!g.closed).flatMap(g=>g.members));
+function rDefis(){
+  const s=S.session;
+  if(!s){$('#main').innerHTML=`<div class="card empty"><h2>⚔️ Défis</h2><p>${isProf()?'Lance d\'abord une séance (onglet Séance) : les défis se jouent pendant la séance.':'Pas de séance en cours.'}</p></div>`;return}
+  const roster=Object.entries(s.roster||{}).map(([id,r])=>({id,name:r.name}));
+  const busy=xBusy();
+  xd.a=xd.a.filter(id=>!busy.has(id)).slice(0,xd.na);xd.b=xd.b.filter(id=>!busy.has(id)&&!xd.a.includes(id)).slice(0,xd.nb);
+  const sizeSel=(k)=>`<div class="seg" style="gap:4px">${[1,2,3].map(n=>`<button class="${xd['n'+k]===n?'on':''}" style="flex:0 0 auto;text-align:center;padding:6px 14px" onclick="xd.n${k}=${n};rDefis()"><b>${n}</b></button>`).join('')}</div>`;
+  const chips=(k)=>{const other=k==='a'?xd.b:xd.a;return`<div class="chips">${roster.filter(r=>!busy.has(r.id)&&!other.includes(r.id)).sort((x,y)=>x.name.localeCompare(y.name)).map(r=>{const on=xd[k].includes(r.id);return`<button class="chip" style="${on?'background:var(--green);color:#fff;border-color:var(--green)':''}" onclick="xPick('${k}','${r.id}')">${esc(r.name)}</button>`}).join('')||'<span class="sub">Tous les élèves sont déjà en défi.</span>'}</div>`};
+  const ok=xd.a.length===xd.na&&xd.b.length===xd.nb;
+  const list=s.duels.map((d,i)=>[d,i]).filter(([d])=>d.adhoc);
+  $('#main').innerHTML=`<div class="toolbar"><h2>⚔️ Défis</h2><button class="btn sm" onclick="go('classement')">🏆</button></div>
+  ${syncBanner()}
+  <div class="card"><h3 style="margin-top:0">Nouveau défi : ${xd.na} contre ${xd.nb}</h3>
+   <div class="sides" style="align-items:start">
+    <div class="side" style="--c:${COLORS[0]}"><div class="row"><b class="grow">Équipe A</b>${sizeSel('a')}</div><p class="sub" style="margin:0">${xd.a.length}/${xd.na} joueur${xd.na>1?'s':''} choisi${xd.na>1?'s':''}</p>${chips('a')}</div>
+    <div class="vs">VS</div>
+    <div class="side" style="--c:${COLORS[1]}"><div class="row"><b class="grow">Équipe B</b>${sizeSel('b')}</div><p class="sub" style="margin:0">${xd.b.length}/${xd.nb} joueur${xd.nb>1?'s':''} choisi${xd.nb>1?'s':''}</p>${chips('b')}</div>
+   </div>
+   <button class="btn orange big" style="margin-top:12px" ${ok?'':'disabled'} onclick="createX()">⚔️ Créer le défi ${xd.na} contre ${xd.nb}</button>
+   <p class="sub" style="margin:8px 0 0">Choisis le nombre de joueurs de chaque côté (1, 2 ou 3), puis touche les élèves. Le premier code juste gagne la manche ; chaque joueur marque les points de son équipe.</p>
+  </div>
+  ${list.length?`<div class="grid" style="grid-template-columns:repeat(auto-fill,minmax(340px,1fr))">${list.map(([d,i])=>duelCard(d,i)).join('')}</div>`:'<p class="sub" style="text-align:center">Aucun défi en cours.</p>'}`;
+  tick();
+}
+function xPick(k,id){const arr=xd[k];const i=arr.indexOf(id);if(i>=0)arr.splice(i,1);else{if(arr.length>=xd['n'+k])arr.shift();arr.push(id)}rDefis()}
+function createX(){
+  const a=[...xd.a],b=[...xd.b];if(!a.length||!b.length)return;
+  const ga=uid(),gb=uid(),did=uid();
+  const lvl=ids=>ids.reduce((t,id)=>t+(stu(id)?.level||3),0)/ids.length;
+  const stars=nearestLevel(clamp(Math.round((lvl(a)+lvl(b))/2),1,6));
+  const nm=ids=>ids.map(id=>(stu(id)?.name||'?').split(' ')[0]).join(' & ');
+  xd={na:xd.na,nb:xd.nb,a:[],b:[]};
+  act('nouveau défi',()=>{const s=S.session;const busy=xBusy();if([...a,...b].some(id=>busy.has(id)))return;
+    const n=s.groups.filter(g=>g.adhoc).length;
+    const mk=(id,m,ci)=>({id,name:nm(m),color:COLORS[(n+ci)%COLORS.length],members:m,adhoc:true,level:1,maxLevel:0,pts:0,cur:null,hist:[],done:[],byes:0,wins:0});
+    s.groups.push(mk(ga,a,2),mk(gb,b,3));
+    s.duels.push({id:did,adhoc:true,a:ga,b:gb,stars,manche:0,state:'wait',score:{a:0,b:0},res:{},winner:null,t0:null})});
+  if(!D(did))toast('Un des élèves vient d\'entrer dans un autre défi');
+}
 
 setInterval(tick,1000);
 if(S.session&&S.session.room&&canSync()){startSync(S.session.room);poll()}
