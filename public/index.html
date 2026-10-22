@@ -132,6 +132,25 @@ main{padding-bottom:90px}
 .info{background:#eef5f0;border-radius:12px;padding:10px 12px;font-size:14px;margin-bottom:12px}
 .warn{background:#fff3e2;border-radius:12px;padding:10px 12px;font-size:14px;margin-bottom:12px}
 .lvlmat td,.lvlmat th{text-align:center;padding:4px}
+#printArea{display:none}
+@media print{
+  body.printing>*:not(#printArea){display:none!important}
+  body.printing #printArea{display:block!important}
+  body.printing{background:#fff}
+  @page{size:A4;margin:12mm}
+}
+#printArea{font:11pt/1.35 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;color:#111}
+#printArea .ph{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:3px solid #1b5e3f;padding-bottom:6px;margin-bottom:8px}
+#printArea h1{font-size:20pt;margin:0;color:#1b5e3f}
+#printArea h2{font-size:13pt;margin:14px 0 4px;color:#1b5e3f;break-after:avoid}
+#printArea .pbox{border:2px solid #ee7a1a;color:#ee7a1a;font-weight:800;padding:4px 10px;border-radius:8px}
+#printArea .pinfo{display:grid;grid-template-columns:repeat(3,1fr);gap:4px 14px;font-size:9.5pt}
+#printArea .pinfo span{color:#666;display:block;font-size:8.5pt}
+#printArea table{width:100%;border-collapse:collapse;font-size:9.5pt}
+#printArea th{background:#e8f3ec;text-align:left;padding:4px 6px;border-bottom:2px solid #1b5e3f}
+#printArea td{padding:3px 6px;border-bottom:1px solid #ddd}
+#printArea tr{break-inside:avoid}
+#printArea .pfoot{color:#888;font-size:8pt;margin-top:12px;text-align:right}
 body.fs header{display:none}
 body.fs main{max-width:none}
 body.fs td,body.fs th{font-size:22px;padding:12px}
@@ -512,6 +531,7 @@ function rDash(){
     <button class="btn sm" onclick="go('classement')">🏆</button>
     ${P(`<button class="btn sm" onclick="editLevels()">★ Niveaux</button>
     <button class="btn sm" onclick="editLimit()">⏱ Temps · essais</button>
+    <button class="btn sm" onclick="openExport()">📤 Export</button>
     <button class="btn sm" onclick="editTeams()">✏️ Équipes</button>
     <button class="btn sm danger" onclick="endSession()">Terminer</button>`)}</div>
   ${syncBanner()}
@@ -774,6 +794,7 @@ function rDefi(){
     <button class="btn sm" onclick="go('classement')">🏆</button>
     ${P(`<button class="btn sm" onclick="editLevels()">★ Niveaux</button>
     <button class="btn sm" onclick="editLimit()">⏱ Temps · essais</button>
+    <button class="btn sm" onclick="openExport()">📤 Export</button>
     ${libre?`<button class="btn sm" onclick="setPairing('niveau')">🔀 Duels automatiques</button>`:`<button class="btn sm" onclick="newRound()">🔀 Nouveaux duels</button><button class="btn sm" onclick="setPairing('libre')">🤝 Adversaires au choix</button>`}
     <button class="btn sm danger" onclick="endSession()">Terminer</button>`)}</div>
     ${syncBanner()}
@@ -944,6 +965,7 @@ window.addEventListener('beforeunload',e=>{if(SYNC.pending.length){e.preventDefa
 /* points cumulés : ajoutés aux élèves de la classe quand la séance se termine */
 function foldSession(sess){
   if(!sess||!sess.v2)return;
+  try{keepHistory(sess)}catch(e){console.warn(e)}
   if(S.classes.some(c=>c.id===sess.classId)){S.sessPts=S.sessPts||{};S.sessPts[sess.id]={classId:sess.classId,date:sess.created,pts:sessPtsOf(sess)}}
 }
 function handleEnded(){
@@ -1031,7 +1053,7 @@ function rClassement(){
   const body=rows.map((r,i)=>{if(r.k!==prev){rank=i+1;prev=r.k}return`<tr class="p${rank}"><td class="rank">${rank===1?'🥇':rank===2?'🥈':rank===3?'🥉':rank}</td>${r.html}</tr>`}).join('');
   $('#main').innerHTML=`<div class="toolbar"><h2>🏆 Classement ${cls?'· '+esc(cls.name):''}</h2>
    <button class="btn sm" onclick="document.body.classList.toggle('fs')">⛶ Plein écran</button>
-   ${P('<button class="btn sm" onclick="exportResults()">⬇ Excel</button>')}
+   ${P('<button class="btn sm" onclick="openExport()">📤 Exporter</button>')}
    ${!document.body.classList.contains('fs')&&S.session?`<button class="btn sm" onclick="go('seance')">← Séance</button>`:''}</div>
    <div class="seg" style="margin-bottom:12px">${views.map(([k,l])=>`<button class="${clsView===k?'on':''}" style="text-align:center" onclick="clsView='${k}';rClassement()"><b>${l}</b></button>`).join('')}</div>
    <div class="card tablewrap" style="padding:6px 10px"><table>${head}${body||'<tr><td colspan="6" class="empty">Pas encore de résultat</td></tr>'}</table></div>
@@ -1443,6 +1465,73 @@ function createX(){
     s.groups.push(mk(ga,a,2),mk(gb,b,3));
     s.duels.push({id:did,adhoc:true,a:ga,b:gb,stars,manche:0,state:'wait',score:{a:0,b:0},res:{},winner:null,t0:null})});
   if(!D(did))toast('Un des élèves vient d\'entrer dans un autre défi');
+}
+
+/* ============ EXPORT D'UNE SÉANCE (Excel / PDF) ============ */
+const MODE_TXT={progression:'Progression',libre:'Niveau libre',defi:'Défis'};
+function keepHistory(sess){
+  if(!sess||!sess.v2||!S.classes.some(c=>c.id===sess.classId))return;
+  S.history=S.history||{};S.history[sess.id]=clone(sess);
+  const ks=Object.keys(S.history).sort((a,b)=>(S.history[a].created||0)-(S.history[b].created||0));
+  while(ks.length>20)delete S.history[ks.shift()];
+}
+function sessReport(s){
+  const nm=id=>s.roster?.[id]?.name||stu(id)?.name||'?';
+  const st={};s.groups.forEach(g=>g.hist.forEach(h=>h.members.forEach(id=>{const m=st[id]||(st[id]={pts:0,ok:0,n:0,max:0,ok1:0,wins:0});m.pts+=h.pts||0;m.n++;if(h.ok){m.ok++;m.max=Math.max(m.max,h.stars);if((h.tries||1)===1)m.ok1++}if(h.win)m.wins++})));
+  const ids=[...new Set([...Object.keys(s.roster||{}),...Object.keys(st)])];
+  const eleves=ids.map(id=>{const m=st[id]||{pts:0,ok:0,n:0,max:0,ok1:0,wins:0};return{name:nm(id),pts:m.pts,ok:m.ok,n:m.n,ok1:m.ok1,max:m.max,wins:m.wins}}).sort((a,b)=>b.pts-a.pts||a.name.localeCompare(b.name));
+  const equipes=s.groups.filter(g=>!g.adhoc&&g.members.length).sort((a,b)=>b.pts-a.pts).map(g=>({name:g.name,members:g.members.map(nm).join(', '),pts:g.pts,ok:g.hist.filter(h=>h.ok).length,n:g.hist.length,max:g.maxLevel||0,wins:g.wins||0}));
+  const G2=id=>s.groups.find(g=>g.id===id);
+  const defis=[];
+  (s.duels||[]).forEach(d=>{const A=G2(d.a),B=G2(d.b);if(A&&B&&d.manche)defis.push({a:A.name+' ('+A.members.map(nm).join(', ')+')',b:B.name+' ('+B.members.map(nm).join(', ')+')',score:d.score.a+' – '+d.score.b,manches:d.manche})});
+  const hist=[];s.groups.forEach(g=>g.hist.forEach(h=>hist.push({ts:h.ts,heure:new Date(h.ts).toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'}),team:g.name+(g.adhoc?' (défi)':''),members:(h.members||[]).map(nm).join(', '),carte:h.carte,stars:h.stars,res:h.ok?'Réussi':h.late?'Temps dépassé':'Échec',tries:h.tries||1,pts:h.pts||0,time:h.time!=null?fmtT(h.time):'',defi:h.duel?(h.win?'Victoire':'Défi'):''})));
+  hist.sort((a,b)=>a.ts-b.ts);
+  const d=new Date(s.created||Date.now());
+  const dur=hist.length?Math.round((hist[hist.length-1].ts-(s.created||hist[0].ts))/60000):0;
+  const L=s.limit;const lim=!L||L.type==='none'?'aucune':L.type==='same'?L.same+' min par carte':L.per.map((m,i)=>(i+1)+'★ '+m+' min').join(', ');
+  const info=[['Classe',s.className||curClass()?.name||''],['Date',d.toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long',year:'numeric'})],['Heure de début',d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})],['Durée (jusqu\'à la dernière validation)',dur+' min'],['Organisation',MODE_TXT[s.mode]||s.mode],['Format',s.size===1?'Solo':s.size===2?'Duo':'Trio'],['Niveaux autorisés',(s.allowed&&s.allowed.length?s.allowed:[1,2,3,4,5,6]).map(l=>l+'★').join(' ')],['Essais par carte',s.tries===0?'illimités':(s.tries||1)],['Temps limite',lim],['Cartes tentées',hist.length],['Cartes réussies',hist.filter(h=>h.res==='Réussi').length],['Taux de réussite',hist.length?Math.round(100*hist.filter(h=>h.res==='Réussi').length/hist.length)+' %':'–']];
+  return{s,info,eleves,equipes,defis,hist,date:d};
+}
+function exportFileName(s,ext){const d=new Date(s.created||Date.now());return`CO_${(s.className||'classe').replace(/[^\w-]+/g,'_')}_${d.toISOString().slice(0,10)}_${String(d.getHours()).padStart(2,'0')}h${String(d.getMinutes()).padStart(2,'0')}.${ext}`}
+function findSess(id){return S.session&&S.session.id===id?S.session:(S.history||{})[id]}
+function exportXlsx(id){
+  const s=findSess(id);if(!s)return toast('Séance introuvable');const r=sessReport(s);
+  const sheets=[{name:'Infos',rows:[['Séance de course d\'orientation',''],...r.info]},
+   {name:'Élèves',rows:[['Rang','Élève','Points','Réussites','Essais','Du 1er coup','Niveau max','Victoires défi'],...r.eleves.map((x,i)=>[i+1,x.name,x.pts,x.ok,x.n,x.ok1,x.max||'',x.wins])]}];
+  if(r.equipes.length)sheets.push({name:'Équipes',rows:[['Rang','Équipe','Membres','Points','Réussites','Essais','Niveau max','Victoires défi'],...r.equipes.map((x,i)=>[i+1,x.name,x.members,x.pts,x.ok,x.n,x.max||'',x.wins])]});
+  if(r.defis.length)sheets.push({name:'Défis',rows:[['Équipe A','Score','Équipe B','Manches'],...r.defis.map(x=>[x.a,x.score,x.b,x.manches])]});
+  sheets.push({name:'Historique',rows:[['Heure','Équipe','Élèves','Carte','Étoiles','Résultat','Essai n°','Points','Temps','Défi'],...r.hist.map(h=>[h.heure,h.team,h.members,h.carte,h.stars,h.res,h.tries,h.pts,h.time,h.defi])]});
+  writeWorkbook(sheets,exportFileName(s,'xlsx'));closeModal();toast('Fichier Excel téléchargé');
+}
+function exportPdf(id){
+  const s=findSess(id);if(!s)return toast('Séance introuvable');const r=sessReport(s);
+  const tbl=(head,rows)=>`<table><thead><tr>${head.map(h=>`<th>${h}</th>`).join('')}</tr></thead><tbody>${rows.map(row=>`<tr>${row.map(c=>`<td>${c}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+  const st=n=>n?'★'.repeat(n):'–';
+  let h=`<div class="ph"><div><h1>Course d'orientation</h1><div>${esc(r.info[0][1])} · ${esc(r.info[1][1])} · ${esc(r.info[2][1])}</div></div><div class="pbox">${esc(MODE_TXT[s.mode]||'')} · ${esc(r.info[5][1])}</div></div>
+  <div class="pinfo">${r.info.slice(3).map(([k,v])=>`<div><span>${esc(k)}</span><b>${esc(String(v))}</b></div>`).join('')}</div>
+  <h2>Classement des élèves</h2>${tbl(['#','Élève','Points','Réussites','Du 1er coup','Niveau max'],r.eleves.map((x,i)=>[i+1,esc(x.name),fmtP(x.pts),x.ok+'/'+x.n,x.ok1,st(x.max)]))}`;
+  if(r.equipes.length)h+=`<h2>Classement des équipes</h2>${tbl(['#','Équipe','Membres','Points','Réussites','Niveau max'],r.equipes.map((x,i)=>[i+1,esc(x.name),esc(x.members),fmtP(x.pts),x.ok+'/'+x.n,st(x.max)]))}`;
+  if(r.defis.length)h+=`<h2>Défis</h2>${tbl(['Équipe A','Score','Équipe B','Manches'],r.defis.map(x=>[esc(x.a),'<b>'+x.score+'</b>',esc(x.b),x.manches]))}`;
+  h+=`<h2>Historique des cartes</h2>${tbl(['Heure','Équipe','Carte','Niveau','Résultat','Essai','Points','Temps'],r.hist.map(x=>[x.heure,esc(x.team),esc(String(x.carte)),st(x.stars),x.res+(x.defi?' · '+x.defi:''),x.tries,fmtP(x.pts),x.time]))}
+  <p class="pfoot">Édité le ${new Date().toLocaleString('fr-FR')} · Course d'orientation EPS</p>`;
+  let pa=document.getElementById('printArea');if(!pa){pa=document.createElement('div');pa.id='printArea';document.body.appendChild(pa)}
+  pa.innerHTML=h;closeModal();
+  const old=document.title;document.title=exportFileName(s,'pdf').replace(/\.pdf$/,'');
+  document.body.classList.add('printing');
+  const done=()=>{document.body.classList.remove('printing');document.title=old;window.removeEventListener('afterprint',done)};
+  window.addEventListener('afterprint',done);
+  setTimeout(()=>{window.print();setTimeout(done,1500)},100);
+}
+function openExport(){
+  needPin(()=>{
+    const list=[];if(S.session)list.push({id:S.session.id,s:S.session,cur:true});
+    Object.entries(S.history||{}).filter(([k])=>!S.session||k!==S.session.id).forEach(([k,s])=>list.push({id:k,s}));
+    list.sort((a,b)=>(b.cur?1:0)-(a.cur?1:0)||(b.s.created||0)-(a.s.created||0));
+    openModal(`<h2>📤 Exporter une séance</h2>
+    ${list.length?`<div style="display:grid;gap:8px">${list.map(x=>{const d=new Date(x.s.created||0);const n=x.s.groups.reduce((t,g)=>t+g.hist.length,0);return`<div class="gbox" style="--c:${x.cur?'var(--orange)':'var(--green)'}"><div class="row"><div class="grow"><b>${esc(x.s.className||'Classe')} · ${d.toLocaleDateString('fr-FR')} ${d.toLocaleTimeString('fr-FR',{hour:'2-digit',minute:'2-digit'})}</b>${x.cur?' <span class="pill" style="background:#fff6ec">en cours</span>':''}<div class="sub">${esc(MODE_TXT[x.s.mode]||'')} · ${n} carte${n>1?'s':''}</div></div><button class="btn sm" onclick="exportXlsx('${x.id}')">📊 Excel</button><button class="btn sm" onclick="exportPdf('${x.id}')">📄 PDF</button></div></div>`}).join('')}</div>`:'<p class="sub">Aucune séance à exporter pour l\'instant.</p>'}
+    <p class="sub" style="margin-top:10px">PDF : choisis « Enregistrer au format PDF » dans la fenêtre d'impression. Les 20 dernières séances terminées sont gardées sur cette tablette.</p>
+    <div class="row" style="justify-content:flex-end;margin-top:10px"><button class="btn" onclick="closeModal()">Fermer</button></div>`);
+  });
 }
 
 setInterval(tick,1000);
